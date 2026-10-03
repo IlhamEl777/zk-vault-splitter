@@ -1,0 +1,1017 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ZK-Splitter Graph | Zero-Knowledge Private Vault Workflow</title>
+    <!-- Google Fonts: Plus Jakarta Sans & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app" class="app-container">
+      <!-- TOP NAVIGATION BAR -->
+      <header class="top-nav">
+        <div class="nav-left">
+          <div class="brand-group">
+            <div class="brand-logo" title="ZK Vault Visualizer">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="#3b82f6" stroke-width="2" stroke-linejoin="round"/>
+                <path d="M2 17L12 22L22 17" stroke="#8b5cf6" stroke-width="2" stroke-linejoin="round"/>
+                <path d="M2 12L12 17L22 12" stroke="#10b981" stroke-width="2" stroke-linejoin="round"/>
+              </svg>
+            </div>
+            <div class="brand-text">
+              <span class="brand-title">ZK-Vault Splitter</span>
+              <span class="brand-tag">1-to-4 Pool</span>
+            </div>
+          </div>
+          <button class="nav-btn ghost-btn" id="btn-reset-workflow" title="Reset Seluruh Saldo & Putaran ke Awal">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+            <span>Reset</span>
+          </button>
+          <button class="nav-btn forensic-nav-btn" id="btn-open-forensic" title="Buka Mode Audit Forensik & De-anonimisasi (Investigator)">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <span>🕵️ Audit Forensik</span>
+          </button>
+        </div>
+
+        <div class="nav-center">
+          <div class="step-indicator">
+            <span class="round-badge" id="round-badge">ROUND #0</span>
+            <span class="step-badge" id="step-badge">READY</span>
+          </div>
+          <button class="run-btn" id="btn-run-workflow">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            <span>Run Flow</span>
+          </button>
+          <div class="runs-status">
+            <span class="status-dots">
+              <span class="dot active"></span>
+              <span class="dot"></span>
+              <span class="dot"></span>
+            </span>
+            <span class="status-text" id="status-text">Mode: Alur Normal (Siap Eksekusi)</span>
+          </div>
+        </div>
+
+        <div class="nav-right">
+          <div class="network-badge" id="network-badge" title="Status Koneksi Node Hardhat Lokal">
+            <span class="live-dot"></span>
+            <span id="network-status-text">Memeriksa Node 127.0.0.1:8545...</span>
+          </div>
+          <div class="user-profile">
+            <span class="avatar">I</span>
+            <span class="user-badge-label">Ilham</span>
+          </div>
+          <button class="agent-toggle-btn active" id="btn-toggle-panel" title="Toggle Assistant Panel">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            <span>ZK Agent</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- DYNAMIC SETUP BAR (DEPOSITOR, RECEIVERS, VAULT ETH) -->
+      <div class="dynamic-setup-bar" id="dynamic-setup-bar">
+        <div class="setup-group">
+          <span class="setup-icon">👤</span>
+          <label class="setup-label" for="select-depositor">Penyetor (Depositor):</label>
+          <div class="setup-select-wrapper">
+            <select id="select-depositor" class="setup-select">
+              <option value="alice" selected>Alice (0x7099...79C8)</option>
+              <option value="bob">Bob (0x3C44...93BC)</option>
+              <option value="charlie">Charlie (0x90F7...b906)</option>
+              <option value="dave">Dave (0x15d3...6A65)</option>
+              <option value="eve">Eve (0x9965...A4dc)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="setup-divider"></div>
+
+        <div class="setup-group">
+          <span class="setup-icon">🎯</span>
+          <span class="setup-label">4 Penerima Otomatis:</span>
+          <div class="receivers-tags-container" id="receivers-tags-container">
+            <span class="receiver-tag" id="tag-rec-0">Bob</span>
+            <span class="receiver-tag" id="tag-rec-1">Charlie</span>
+            <span class="receiver-tag" id="tag-rec-2">Dave</span>
+            <span class="receiver-tag" id="tag-rec-3">Eve</span>
+          </div>
+        </div>
+
+        <div class="setup-divider"></div>
+
+        <div class="setup-group">
+          <span class="setup-icon">💰</span>
+          <label class="setup-label" for="input-custom-eth">Setoran Brankas:</label>
+          <div class="preset-pills" id="preset-pills">
+            <button type="button" class="preset-pill" data-eth="0.4">0.4 ETH</button>
+            <button type="button" class="preset-pill active" data-eth="1.0">1.0 ETH</button>
+            <button type="button" class="preset-pill" data-eth="2.0">2.0 ETH</button>
+            <button type="button" class="preset-pill" data-eth="4.0">4.0 ETH</button>
+            <button type="button" class="preset-pill" data-eth="10.0">10.0 ETH</button>
+          </div>
+          <div class="custom-eth-wrap">
+            <input type="number" id="input-custom-eth" class="custom-eth-input" value="1.0" min="0.04" max="1000" step="0.1" />
+            <span class="eth-badge">ETH</span>
+          </div>
+        </div>
+
+        <div class="setup-divider"></div>
+
+        <div class="setup-group setup-split-summary">
+          <span class="setup-icon">⚡</span>
+          <span class="calc-label">Pecahan / Penerima:</span>
+          <span class="calc-badge" id="calc-split-badge">0.2500 ETH</span>
+        </div>
+      </div>
+
+      <!-- MAIN WORKSPACE -->
+      <div class="workspace">
+        <!-- LEFT SLIM TOOLBAR (CANVAS TOOLS ONLY) -->
+        <aside class="left-toolbar">
+          <button class="tool-btn active" id="btn-view-graph" title="Tampilan Graf Node (Aktif)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          </button>
+          <button class="tool-btn" id="btn-auto-wire" title="Rapikan & Pasang Ulang Semua Kabel (Auto-Wire)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+          </button>
+          <button class="tool-btn" id="btn-center-graph" title="Pusatkan Tampilan Kanvas (Center / Fit View)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+          </button>
+          <button class="tool-btn" id="btn-pan-tool" title="Mode Geser Layar (Hand Pan Tool)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 11V6a2 2 0 0 0-4 0v4"/><path d="M14 10V4a2 2 0 0 0-4 0v6"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>
+          </button>
+          <div class="toolbar-spacer"></div>
+          <button class="tool-btn highlight-forensic-btn" id="btn-forensic-tool" title="Buka Mode Audit Forensik (Investigator)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          </button>
+          <button class="tool-btn highlight-guide-btn" id="btn-info" title="Panduan Interaktif Alur Zero-Knowledge (?)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          </button>
+        </aside>
+
+        <!-- GRAPH CANVAS VIEWPORT -->
+        <main class="graph-canvas" id="graph-canvas">
+          <!-- Background Grid -->
+          <div class="dot-grid"></div>
+
+          <!-- Floating Interactive Cable Error/Success Tooltip -->
+          <div class="cable-tooltip" id="cable-tooltip"></div>
+
+          <!-- Defense Overlay / Interception Stamp -->
+          <div class="defense-overlay" id="defense-overlay">
+            <div class="defense-stamp" id="defense-stamp">
+              <div class="defense-shield-icon">🛡️</div>
+              <div class="defense-info">
+                <div class="defense-badge-tag" id="defense-badge-tag">TRANSAKSI DIBATALKAN (REVERTED)</div>
+                <div class="defense-title" id="defense-title">Sabotase Alamat Berhasil Dicegat!</div>
+                <div class="defense-desc" id="defense-desc">Smart contract menolak manipulasi alamat penerima. Bukti Groth16 terkunci rapat pada penerima asli.</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- SVG Cables Layer -->
+          <svg class="cables-layer" id="cables-svg">
+            <defs>
+              <linearGradient id="cable-gradient-blue" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+              <linearGradient id="cable-gradient-purple" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#8b5cf6" />
+                <stop offset="100%" stop-color="#ec4899" />
+              </linearGradient>
+              <linearGradient id="cable-gradient-orange" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#ec4899" />
+                <stop offset="100%" stop-color="#f59e0b" />
+              </linearGradient>
+              <linearGradient id="cable-gradient-green" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#f59e0b" />
+                <stop offset="100%" stop-color="#10b981" />
+              </linearGradient>
+
+              <!-- Glow filter -->
+              <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+                <feGaussianBlur stdDeviation="3" result="blur" />
+                <feComposite in="SourceGraphic" in2="blur" operator="over" />
+              </filter>
+            </defs>
+
+            <!-- Permanent Bezier Cables -->
+            <path id="cable-1" class="cable cable-inactive" d="" />
+            <path id="cable-2" class="cable cable-inactive" d="" />
+            <path id="cable-3" class="cable cable-inactive" d="" />
+            <path id="cable-4" class="cable cable-inactive" d="" />
+
+            <!-- Dynamic Interactive Cable (Drawn when dragging) -->
+            <path id="cable-draft" class="cable cable-draft" d="" />
+          </svg>
+
+          <!-- NODES CONTAINER (TRANSFORMABLE) -->
+          <div class="nodes-container" id="nodes-container">
+            <!-- NODE 1: DEPOSITOR (DYNAMIC ACCOUNT) -->
+            <div class="node-card" id="node-alice" style="left: 40px; top: 80px;" data-node-id="alice">
+              <div class="node-header color-blue">
+                <div class="node-title">
+                  <span class="node-dot"></span>
+                  <span id="node-depositor-title">1. Alice (Penyetor Rahasia)</span>
+                </div>
+                <span class="node-tag" id="node-depositor-badge">Depositor</span>
+              </div>
+              <div class="node-body">
+                <div class="node-field">
+                  <label>Dompet Penyetor:</label>
+                  <div class="code-val address-val" id="val-alice-address">0x7099...79C8</div>
+                </div>
+                <div class="node-field">
+                  <label id="label-depositor-balance">Saldo Penyetor:</label>
+                  <div class="code-val highlight-val" id="val-alice-balance">10,000.0000 ETH</div>
+                </div>
+                <div class="node-divider"></div>
+                <div class="node-field">
+                  <label>Private Preimage (Secret):</label>
+                  <div class="code-val mono-small" id="val-secret">0x8f4d...391a (254-bit)</div>
+                </div>
+                <div class="node-field">
+                  <label>Private Nullifier:</label>
+                  <div class="code-val mono-small" id="val-nullifier">0xc1a9...e27b (254-bit)</div>
+                </div>
+                <div class="node-divider"></div>
+                <div class="port-row output-row">
+                  <span class="port-label" id="port-depositor-label">Deposit Commitment & 1.0 ETH</span>
+                  <div class="port port-out port-blue" id="port-alice-out" data-port-id="port-alice-out" data-port-type="commitment" data-port-dir="out" title="Tarik kabel dari sini ke port brankas"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- NODE 2: ZKVAULT CONTRACT (MERKLE TREE) -->
+            <div class="node-card" id="node-vault" style="left: 420px; top: 80px;" data-node-id="vault">
+              <div class="node-header color-purple">
+                <div class="node-title">
+                  <span class="node-dot"></span>
+                  <span>2. ZKVault (Brankas Digital)</span>
+                </div>
+                <span class="node-tag">Smart Contract</span>
+              </div>
+              <div class="node-body">
+                <div class="port-row input-row">
+                  <div class="port port-in port-blue" id="port-vault-in" data-port-id="port-vault-in" data-port-type="commitment" data-port-dir="in" title="Colokkan kabel commitment deposit ke sini"></div>
+                  <span class="port-label">Commitment Ingestion</span>
+                </div>
+                <div class="node-divider"></div>
+                <div class="node-field">
+                  <label>Alamat Smart Contract:</label>
+                  <div class="code-val address-val" id="val-vault-address">0x5FC8...5707 (EVM)</div>
+                </div>
+                <div class="node-field">
+                  <label>Saldo Brankas:</label>
+                  <div class="code-val highlight-val" id="val-vault-balance">0.0000 ETH</div>
+                </div>
+                <div class="node-field">
+                  <label>Setoran Aktif Brankas:</label>
+                  <div class="code-val text-success" id="val-vault-denomination">1.00 ETH (0.25 ETH / dompet)</div>
+                </div>
+                <div class="node-field">
+                  <label>Pohon Merkle (Poseidon):</label>
+                  <div class="code-val" id="val-vault-tree">Depth: 8 | Capacity: 256</div>
+                </div>
+                <div class="node-field">
+                  <label>Latest Merkle Root:</label>
+                  <div class="code-val mono-small" id="val-merkle-root">0x14d0...8b1e</div>
+                </div>
+                <div class="node-divider"></div>
+                <div class="port-row output-row">
+                  <span class="port-label">Merkle Tree Root & Sibling Path</span>
+                  <div class="port port-out port-purple" id="port-vault-out" data-port-id="port-vault-out" data-port-type="root" data-port-dir="out" title="Tarik kabel akar Merkle ke port ZK Prover"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- NODE 3: ZK PROVER (CIRCOM GROTH16) -->
+            <div class="node-card" id="node-prover" style="left: 800px; top: 80px;" data-node-id="prover">
+              <div class="node-header color-pink">
+                <div class="node-title">
+                  <span class="node-dot"></span>
+                  <span>3. ZK-Circuit (Groth16 Prover)</span>
+                </div>
+                <span class="node-tag">Off-Chain</span>
+              </div>
+              <div class="node-body">
+                <div class="port-row input-row">
+                  <div class="port port-in port-purple" id="port-prover-in" data-port-id="port-prover-in" data-port-type="root" data-port-dir="in" title="Colokkan kabel akar Merkle dari brankas ke sini"></div>
+                  <span class="port-label">Root & Private Witness</span>
+                </div>
+                <div class="node-divider"></div>
+                <div class="node-field">
+                  <label>Rumus Sirkuit:</label>
+                  <div class="code-val">splitter.circom (2,423 R1CS)</div>
+                </div>
+                <div class="node-field">
+                  <label>Waktu Perhitungan Bukti:</label>
+                  <div class="code-val highlight-val" id="val-proof-time">260 ms (Groth16)</div>
+                </div>
+                <div class="node-field">
+                  <label>Nullifier Hash Publik:</label>
+                  <div class="code-val mono-small" id="val-nullifier-hash">0x2a9e...731f</div>
+                </div>
+                <div class="node-field">
+                  <label>Binding 4 Alamat Penerima:</label>
+                  <div class="code-val text-success">Terkunci secara matematis</div>
+                </div>
+                <div class="node-divider"></div>
+                <div class="port-row output-row">
+                  <span class="port-label">ZK Proof & Kupon Rahasia</span>
+                  <div class="port port-out port-pink" id="port-prover-out" data-port-id="port-prover-out" data-port-type="proof" data-port-dir="out" title="Tarik kabel kupon ZK ke port Kurir Relayer"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- NODE 4: RELAYER (KURIR ANONIM) -->
+            <div class="node-card" id="node-relayer" style="left: 420px; top: 520px;" data-node-id="relayer">
+              <div class="node-header color-orange">
+                <div class="node-title">
+                  <span class="node-dot"></span>
+                  <span>4. Relayer (Kurir Pengantar)</span>
+                </div>
+                <span class="node-tag">Courier</span>
+              </div>
+              <div class="node-body">
+                <div class="port-row input-row">
+                  <div class="port port-in port-pink" id="port-relayer-in" data-port-id="port-relayer-in" data-port-type="proof" data-port-dir="in" title="Colokkan kupon ZK dari prover ke sini"></div>
+                  <span class="port-label">Kupon ZK & 4 Rekening</span>
+                </div>
+                <div class="node-divider"></div>
+                <div class="node-field">
+                  <label>Dompet Kurir (Pengirim Tx):</label>
+                  <div class="code-val address-val">0x976E...0aa9</div>
+                </div>
+                <div class="node-field">
+                  <label>Koneksi ke Penyetor:</label>
+                  <div class="code-val text-success font-bold">NOL (0% Jejak On-Chain)</div>
+                </div>
+                <div class="node-field">
+                  <label>Fungsi yang Dipanggil:</label>
+                  <div class="code-val">withdrawSplit(...)</div>
+                </div>
+                <div class="node-field">
+                  <label>Status Tx:</label>
+                  <div class="code-val text-muted" id="val-tx-status">Menunggu eksekusi</div>
+                </div>
+                <div class="node-divider"></div>
+                <div class="port-row output-row">
+                  <span class="port-label" id="port-relayer-label">Pencairan Terbagi (4x 0.2500 ETH)</span>
+                  <div class="port port-out port-green" id="port-relayer-out" data-port-id="port-relayer-out" data-port-type="payout" data-port-dir="out" title="Tarik kabel pencairan ke port 4 Penerima"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- NODE 5: 4 RECIPIENTS (DYNAMIC) -->
+            <div class="node-card" id="node-recipients" style="left: 800px; top: 520px;" data-node-id="recipients">
+              <div class="node-header color-green">
+                <div class="node-title">
+                  <span class="node-dot"></span>
+                  <span id="node-recipients-title">5. Empat Dompet Penerima (Split)</span>
+                </div>
+                <span class="node-tag">Penerima</span>
+              </div>
+              <div class="node-body">
+                <div class="port-row input-row">
+                  <div class="port port-in port-green" id="port-recipients-in" data-port-id="port-recipients-in" data-port-type="payout" data-port-dir="in" title="Colokkan kabel pencairan dari kurir ke sini"></div>
+                  <span class="port-label">Dana Masuk dari Brankas</span>
+                </div>
+                <div class="recipients-grid" id="recipients-grid">
+                  <div class="recipient-item" id="rec-item-0" data-rec-index="0">
+                    <div class="rec-name" id="rec-name-0">Bob</div>
+                    <div class="rec-address" id="rec-addr-0">0x3C44...93BC</div>
+                    <div class="rec-balance" id="rec-bal-0">10,000.0000 ETH</div>
+                    <div class="rec-target-badge" id="rec-target-0">+0.2500 ETH</div>
+                  </div>
+                  <div class="recipient-item" id="rec-item-1" data-rec-index="1">
+                    <div class="rec-name" id="rec-name-1">Charlie</div>
+                    <div class="rec-address" id="rec-addr-1">0x90F7...b906</div>
+                    <div class="rec-balance" id="rec-bal-1">10,000.0000 ETH</div>
+                    <div class="rec-target-badge" id="rec-target-1">+0.2500 ETH</div>
+                  </div>
+                  <div class="recipient-item" id="rec-item-2" data-rec-index="2">
+                    <div class="rec-name" id="rec-name-2">Dave</div>
+                    <div class="rec-address" id="rec-addr-2">0x15d3...6A65</div>
+                    <div class="rec-balance" id="rec-bal-2">10,000.0000 ETH</div>
+                    <div class="rec-target-badge" id="rec-target-2">+0.2500 ETH</div>
+                  </div>
+                  <div class="recipient-item" id="rec-item-3" data-rec-index="3">
+                    <div class="rec-name" id="rec-name-3">Eve</div>
+                    <div class="rec-address" id="rec-addr-3">0x9965...A4dc</div>
+                    <div class="rec-balance" id="rec-bal-3">10,000.0000 ETH</div>
+                    <div class="rec-target-badge" id="rec-target-3">+0.2500 ETH</div>
+                  </div>
+                </div>
+                <div class="node-note" id="node-recipients-note">
+                  🛡️ Sumber transfer on-chain: <code>ZKVault</code> (Bukan Penyetor).
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- BOTTOM LEFT TELEMETRY -->
+          <div class="canvas-telemetry">
+            <span>T: <strong id="telemetry-time">0.00s</strong></span>
+            <span>NODES: <strong>5</strong></span>
+            <span>FPS: <strong>60</strong></span>
+            <span>EVM: <strong class="text-success">Connected</strong></span>
+            <span class="scroll-tip-label">💡 Copot/Pasang kabel dengan klik-tarik port lingkaran</span>
+          </div>
+
+          <!-- BOTTOM RIGHT MINIMAP & CONTROLS -->
+          <div class="canvas-controls">
+            <div class="minimap-box" id="minimap-box">
+              <canvas id="minimap-canvas" width="140" height="90"></canvas>
+            </div>
+            <div class="zoom-toolbar">
+              <button class="zoom-btn" id="btn-zoom-out" title="Zoom Out">−</button>
+              <span class="zoom-val" id="val-zoom">100%</span>
+              <button class="zoom-btn" id="btn-zoom-in" title="Zoom In">+</button>
+              <button class="zoom-btn" id="btn-zoom-fit" title="Fit to Screen">⛶</button>
+            </div>
+          </div>
+        </main>
+
+        <!-- RIGHT SIDEBAR: ZK ASSISTANT & LIVE INSPECTOR -->
+        <aside class="right-panel" id="right-panel">
+          <!-- Draggable Left Splitter / Resizer Handle -->
+          <div class="panel-resizer" id="panel-resizer" title="Geser (drag) ke kiri/kanan untuk mengatur ukuran lebar panel bebas"></div>
+
+          <!-- Drawer Collapse / Expand Handle Button on the Left Edge -->
+          <button class="drawer-toggle-handle" id="drawer-toggle-handle" title="Tutup / Buka Panel Samping">
+            <span id="drawer-handle-arrow">›</span>
+          </button>
+
+          <div class="panel-header" id="panel-drag-header">
+            <div class="panel-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+              <span>ZK Privacy Agent</span>
+              <span class="pill-beta">EVM</span>
+            </div>
+            <div class="panel-header-actions">
+              <button class="panel-action-icon-btn" id="btn-float-panel" title="Mode Jendela Mengambang (Bisa di-Drag & Drop bebas)">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="14" height="14" rx="2" ry="2"/><polyline points="21 9 21 21 9 21"/></svg>
+              </button>
+              <button class="panel-action-icon-btn" id="btn-maximize-panel" title="Layar Penuh / Ruang Penuh (Full Space)">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="icon-maximize"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+              </button>
+              <button class="panel-close-btn" id="btn-close-panel" title="Tutup / Minimize">×</button>
+            </div>
+          </div>
+
+          <!-- TAB NAVIGATION BAR -->
+          <div class="panel-tabs-bar" id="panel-tabs-bar" role="tablist" aria-label="Navigasi Panel Konten">
+            <button class="panel-tab-btn active" id="tab-btn-scenario-log" role="tab" aria-selected="true" aria-controls="pane-scenario-log" data-tab="scenario-log">
+              <span class="tab-icon">🚀</span>
+              <span class="tab-label">Skenario &amp; Log</span>
+            </button>
+            <button class="panel-tab-btn" id="tab-btn-inspector-receipt" role="tab" aria-selected="false" aria-controls="pane-inspector-receipt" data-tab="inspector-receipt">
+              <span class="tab-icon">🔍</span>
+              <span class="tab-label">Inspektor &amp; Bukti Tx</span>
+            </button>
+          </div>
+
+          <div class="panel-content" id="panel-content">
+            <!-- TAB PANE 1: SKENARIO & LOG -->
+            <div class="panel-tab-pane active" id="pane-scenario-log" role="tabpanel" aria-labelledby="tab-btn-scenario-log">
+              <!-- SEGMENT 1: SKENARIO -->
+              <div class="panel-section" id="seg-scenario">
+                <div class="seg-header">
+                  <span class="seg-title">🚀 Skenario &amp; Pengantar</span>
+                </div>
+                <div class="seg-body">
+                  <div class="agent-greeting">
+                    <h3>Halo Ilham,</h3>
+                    <p>Pilih skenario lalu klik <strong>"Run Flow"</strong> di atas. Anda juga bebas mencopot &amp; memasang kabel:</p>
+                  </div>
+
+                  <!-- Active Scenario Card (Default View) -->
+                  <div class="scenario-active-card" id="scenario-active-card">
+                    <div class="action-icon" id="active-scenario-icon">🚀</div>
+                    <div class="action-info">
+                      <div class="scenario-active-badge">SKENARIO AKTIF</div>
+                      <div class="action-title" id="active-scenario-title">1. Alur Anonim Penuh (Normal)</div>
+                      <div class="action-desc" id="active-scenario-desc">Deposit 1.0 ETH baru ➔ Kupon ZK ➔ Split ke 4 teman</div>
+                    </div>
+                  </div>
+
+                  <!-- Expand Toggle Button -->
+                  <div class="scenario-expand-toggle-wrap">
+                    <button class="btn-expand-scenarios" id="btn-toggle-scenarios" type="button">
+                      <span id="scenario-expand-icon">▾</span>
+                      <span id="scenario-expand-label">Ganti Skenario Eksperimen (3 Opsi)</span>
+                    </button>
+                  </div>
+
+                  <!-- Expandable Scenario Choices (Hidden by default) -->
+                  <div class="quick-actions-expandable" id="quick-actions-expandable" hidden>
+                    <button class="action-card-btn active-action" id="action-run-full" data-scenario="normal">
+                      <div class="action-icon">🚀</div>
+                      <div class="action-info">
+                        <div class="action-title">1. Alur Anonim Penuh (Normal)</div>
+                        <div class="action-desc">Deposit 1.0 ETH baru ➔ Kupon ZK ➔ Split ke 4 teman</div>
+                      </div>
+                    </button>
+
+                    <button class="action-card-btn" id="action-test-hijack" data-scenario="hijack">
+                      <div class="action-icon">⚔️</div>
+                      <div class="action-info">
+                        <div class="action-title">2. Uji Sabotase Kurir (Front-Running)</div>
+                        <div class="action-desc">Kurir mencoba ganti alamat penerima ke dompetnya</div>
+                      </div>
+                    </button>
+
+                    <button class="action-card-btn" id="action-test-double-spend" data-scenario="doublespend">
+                      <div class="action-icon">⚠️</div>
+                      <div class="action-info">
+                        <div class="action-title">3. Uji Double-Spending</div>
+                        <div class="action-desc">Cairkan kupon putaran sebelumnya untuk kedua kali</div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- SEGMENT 4: LIVE ACTIVITY FEED (Moved into Tab 1) -->
+              <div class="activity-feed panel-section" id="seg-log">
+                <div class="seg-header">
+                  <h4 class="seg-title">📜 Log Transaksi &amp; Audit Real-time</h4>
+                  <span class="seg-right">
+                    <button class="seg-clear" id="btn-clear-log" title="Bersihkan baris log transaksi">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                      <span>Bersihkan</span>
+                    </button>
+                    <button class="seg-toggle" title="Minimize / Buka segmen">▾</button>
+                  </span>
+                </div>
+                <div class="log-stream seg-body" id="log-stream">
+                  <div class="log-entry">
+                    <span class="log-time">[Ready]</span>
+                    <span class="log-msg">Sistem siap. Kabel dapat dicopot dan dipasang bebas antar port.</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- TAB PANE 2: INSPEKTOR & BUKTI TX -->
+            <div class="panel-tab-pane" id="pane-inspector-receipt" role="tabpanel" aria-labelledby="tab-btn-inspector-receipt" hidden>
+              <!-- SEGMENT 2: LIVE NODE INSPECTOR -->
+              <div class="inspector-card panel-section" id="inspector-card">
+                <div class="inspector-header seg-header">
+                  <span class="inspector-title" id="inspector-title">🔍 Live Node Inspector</span>
+                  <span class="seg-right">
+                    <span class="inspector-status" id="inspector-status">● LIVE ACTIVE</span>
+                    <button class="seg-toggle" title="Minimize / Buka segmen">▾</button>
+                  </span>
+                </div>
+                <div class="inspector-body seg-body" id="inspector-body">
+                  <!-- Dynamically populated and live synchronized with current active node -->
+                </div>
+              </div>
+
+              <!-- SEGMENT 3: ON-CHAIN RECEIPT CARD -->
+              <div class="onchain-receipt-card panel-section" id="onchain-receipt-card">
+                <div class="receipt-header seg-header">
+                  <div class="receipt-title-wrap">
+                    <span class="receipt-icon">🧾</span>
+                    <span class="receipt-title">Bukti On-Chain Terakhir</span>
+                  </div>
+                  <span class="seg-right">
+                    <span class="receipt-badge" id="receipt-status-badge">READY</span>
+                    <button class="seg-toggle" title="Minimize / Buka segmen">▾</button>
+                  </span>
+                </div>
+                <div class="receipt-body seg-body">
+                  <div class="receipt-field">
+                    <div class="field-label-wrap">
+                      <span class="field-label">Setoran (Deposit Tx):</span>
+                      <button class="btn-copy-mini" id="btn-copy-deposit-tx" title="Salin Full Hash Setoran">📋 Salin</button>
+                    </div>
+                    <div class="field-value-mono" id="receipt-deposit-tx">Belum ada transaksi di sesi ini</div>
+                  </div>
+
+                  <div class="receipt-field">
+                    <div class="field-label-wrap">
+                      <span class="field-label">Pencairan (Withdraw Tx):</span>
+                      <button class="btn-copy-mini" id="btn-copy-withdraw-tx" title="Salin Full Hash Pencairan">📋 Salin</button>
+                    </div>
+                    <div class="field-value-mono" id="receipt-withdraw-tx">Belum ada transaksi di sesi ini</div>
+                  </div>
+
+                  <div class="receipt-meta-row">
+                    <span class="meta-tag" id="receipt-block-tag">Blok: -</span>
+                    <span class="meta-tag" id="receipt-amount-tag">Nilai: -</span>
+                    <button class="receipt-audit-btn" id="btn-receipt-open-audit" title="Buka transaksi ini di Mode Audit Forensik">
+                      🕵️ Audit Tx Ini
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      <!-- INTERACTIVE ZERO-KNOWLEDGE GUIDE MODAL -->
+      <div class="modal-backdrop" id="modal-guide-backdrop">
+        <div class="guide-modal" id="guide-modal">
+          <div class="guide-modal-header">
+            <div class="modal-title-wrap">
+              <span class="modal-icon">📖</span>
+              <div>
+                <h3 class="modal-title">Panduan Alur Zero-Knowledge (ZK-Splitter)</h3>
+                <p class="modal-subtitle">Cara kerja privasi kriptografi 5 node & jaminan 0% jejak on-chain</p>
+              </div>
+            </div>
+            <button class="modal-close-btn" id="btn-close-modal" title="Tutup Panduan">×</button>
+          </div>
+
+          <div class="guide-modal-body">
+            <div class="guide-steps-grid">
+              <!-- Step 1 -->
+              <div class="guide-step-card border-blue">
+                <div class="step-num-badge bg-blue">1</div>
+                <div class="step-card-content">
+                  <div class="step-card-header">
+                    <span class="step-card-title">Penyetor Rahasia (Depositor)</span>
+                    <span class="step-role-badge">Off-Chain ➔ On-Chain</span>
+                  </div>
+                  <p>Membuat 2 angka acak 254-bit (<strong>secret</strong> & <strong>nullifier</strong>) di komputernya. Menghitung <code>commitment = Poseidon(nullifier, secret)</code> dan menyetor ETH ke brankas tanpa mengungkap siapa penerima dananya.</p>
+                </div>
+              </div>
+
+              <!-- Step 2 -->
+              <div class="guide-step-card border-purple">
+                <div class="step-num-badge bg-purple">2</div>
+                <div class="step-card-content">
+                  <div class="step-card-header">
+                    <span class="step-card-title">Brankas Digital (ZKVault)</span>
+                    <span class="step-role-badge">Smart Contract EVM</span>
+                  </div>
+                  <p>Menyimpan saldo ETH dan memasukkan commitment hash ke dalam <strong>Pohon Merkle</strong> (kapasitas 256 daun). Menghasilkan <em>Merkle Root</em> baru yang dapat dibuktikan tanpa membocorkan isi brankas.</p>
+                </div>
+              </div>
+
+              <!-- Step 3 -->
+              <div class="guide-step-card border-pink">
+                <div class="step-num-badge bg-pink">3</div>
+                <div class="step-card-content">
+                  <div class="step-card-header">
+                    <span class="step-card-title">Groth16 ZK-Prover</span>
+                    <span class="step-role-badge">SnarkJS Circuit</span>
+                  </div>
+                  <p>Menghitung bukti ZK (2,423 constraints R1CS) membuktikan penyetor memiliki deposit valid di pohon Merkle tanpa membuka rahasianya, serta <strong>mengunci matematis 4 alamat penerima</strong> agar tidak bisa dibajak siapapun.</p>
+                </div>
+              </div>
+
+              <!-- Step 4 -->
+              <div class="guide-step-card border-orange">
+                <div class="step-num-badge bg-orange">4</div>
+                <div class="step-card-content">
+                  <div class="step-card-header">
+                    <span class="step-card-title">Kurir Relayer</span>
+                    <span class="step-role-badge">Relay Network</span>
+                  </div>
+                  <p>Pihak ketiga independen yang mengirim transaksi <code>withdrawSplit</code> ke smart contract on-chain. Kurir membayar gas fee sehingga <strong>IP address dan dompet penyetor 100% terputus</strong> dari pencairan.</p>
+                </div>
+              </div>
+
+              <!-- Step 5 -->
+              <div class="guide-step-card border-green">
+                <div class="step-num-badge bg-green">5</div>
+                <div class="step-card-content">
+                  <div class="step-card-header">
+                    <span class="step-card-title">4 Dompet Penerima (Split)</span>
+                    <span class="step-role-badge">Split Payout</span>
+                  </div>
+                  <p>Smart contract memverifikasi bukti matematika. Jika valid, dana brankas langsung dipecah sama rata (<code>ETH / 4</code>) ke 4 dompet penerima. Sumber pengirim di blockchain tercatat berasal dari <strong>ZKVault</strong>, bukan dari penyetor!</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="guide-interactive-tips">
+              <h4>💡 Tips Interaksi & Eksperimen:</h4>
+              <ul>
+                <li><strong>Ganti Peran Dinamis:</strong> Gunakan bilah setup di atas untuk memilih akun mana pun dari 5 akun lokal sebagai penyetor atau penerima, serta tentukan nominal ETH brankas.</li>
+                <li><strong>Copot & Pasang Kabel:</strong> Tarik port lingkaran untuk mencopot kabel atau menyambungkannya ke port lain. Sistem akan menolak jika sambungan melanggar alur privasi ZK.</li>
+                <li><strong>Uji Ketahanan Serangan:</strong> Pilih skenario <em>Sabotase Kurir</em> atau <em>Double-Spending</em> di panel kanan lalu klik <em>Run Flow</em> untuk melihat smart contract menolak transaksi secara on-chain!</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="guide-modal-footer">
+            <button class="modal-primary-btn" id="btn-modal-gotit">Saya Mengerti, Mulai Simulasi</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- FORENSIC INVESTIGATOR AUDIT MODAL -->
+      <div class="modal-backdrop" id="modal-forensic-backdrop">
+        <div class="forensic-modal" id="forensic-modal">
+          <div class="forensic-modal-header">
+            <div class="modal-title-wrap">
+              <span class="modal-icon">🕵️‍♂️</span>
+              <div>
+                <div class="forensic-header-badges">
+                  <h3 class="modal-title">Mode Audit Forensik: De-anonimisasi ZK-Vault</h3>
+                  <span class="forensic-case-badge" id="forensic-case-badge">CASE #INV-READY</span>
+                </div>
+                <p class="modal-subtitle">Inspeksi on-chain, rekonstruksi Pohon Merkle ($k$-anonymity), & pelacakan tersangka penyetor</p>
+              </div>
+            </div>
+            <div class="forensic-modal-actions">
+              <button class="forensic-clear-btn" id="btn-clear-forensic" title="Bersihkan tampilan audit (reset ke kondisi awal)">🧹 Bersihkan</button>
+              <button class="forensic-action-btn" id="btn-run-audit-now" title="Pindai Ulang Blockchain Sekarang">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                <span>Scan On-Chain</span>
+              </button>
+              <button class="modal-close-btn" id="btn-close-forensic" title="Tutup">×</button>
+            </div>
+          </div>
+
+          <div class="forensic-modal-body">
+            <!-- Target Transaction Bar with History Selector -->
+            <div class="forensic-tx-bar">
+              <div class="tx-history-selector-wrap">
+                <div class="tx-bar-label">
+                  <span>📜 Pilih Riwayat Pencairan On-Chain (15 Transaksi Terakhir):</span>
+                  <span class="tx-bar-badge" id="forensic-target-badge">OTOMATIS (TERBARU)</span>
+                </div>
+                <div class="tx-select-row">
+                  <select id="select-forensic-history" class="forensic-history-select">
+                    <option value="">⏳ Memuat daftar transaksi penarikan...</option>
+                  </select>
+                  <button class="tx-refresh-history-btn" id="btn-refresh-history" title="Perbarui Riwayat dari Kontrak">🔄</button>
+                </div>
+              </div>
+
+              <div class="tx-custom-input-row">
+                <span class="tx-or-label">Atau audit hash kustom:</span>
+                <div class="tx-input-wrap">
+                  <input type="text" id="input-forensic-tx" class="forensic-tx-input" placeholder="0x... (Tx Hash Withdraw kustom)" />
+                  <button class="tx-scan-btn" id="btn-scan-custom-tx">Audit Custom Tx</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Empty state: tampil bersih saat modal dibuka -->
+            <div class="forensic-empty-state" id="forensic-empty-state">
+              <div class="empty-icon">🕵️</div>
+              <h4>Belum ada transaksi yang diaudit</h4>
+              <p>Pilih transaksi dari riwayat di atas, tempel hash kustom, atau tekan <strong>Scan On-Chain</strong> untuk mengaudit penarikan terbaru. Hasil akan tampil di sini.</p>
+            </div>
+
+            <!-- Loading State: Tampil informatif saat analisa sedang berlangsung -->
+            <div class="forensic-loading-state" id="forensic-loading-state" hidden>
+              <div class="loading-scanner-card">
+                <div class="scanner-visual">
+                  <div class="radar-circle pulse-1"></div>
+                  <div class="radar-circle pulse-2"></div>
+                  <div class="scanner-icon">🕵️‍♂️</div>
+                </div>
+                <div class="scanner-info">
+                  <div class="scanner-badge-pill">🔍 ANALISIS FORENSIK SEDANG BERJALAN</div>
+                  <h4 class="loading-title" id="forensic-loading-title">Menganalisa Jejak On-Chain &amp; Rekonstruksi Pohon Merkle...</h4>
+                  <p class="loading-subtitle" id="forensic-loading-subtitle">
+                    Mesin forensik sedang mengevaluasi 5 pilar de-anonimisasi terhadap transaksi penarikan kustom.
+                  </p>
+                </div>
+              </div>
+
+              <!-- Animated Progress Bar -->
+              <div class="loading-progress-box">
+                <div class="loading-progress-track">
+                  <div class="loading-progress-bar" id="forensic-progress-bar" style="width: 0%;"></div>
+                </div>
+                <div class="loading-progress-meta">
+                  <span class="progress-status-text" id="forensic-progress-status">Menunggu analisis dimulai...</span>
+                  <span class="progress-percentage-text" id="forensic-progress-pct">0%</span>
+                </div>
+              </div>
+
+              <!-- Live Analysis Steps Checklist -->
+              <div class="loading-steps-grid">
+                <div class="step-card" id="f-step-1">
+                  <div class="step-num">1</div>
+                  <div class="step-details">
+                    <span class="step-name">Verifikasi Nullifier Hash</span>
+                    <span class="step-desc">Memastikan status pembelanjaan on-chain di smart contract.</span>
+                  </div>
+                  <span class="step-status-tag" id="f-step-tag-1">Menunggu</span>
+                </div>
+                <div class="step-card" id="f-step-2">
+                  <div class="step-num">2</div>
+                  <div class="step-details">
+                    <span class="step-name">Rekonstruksi Pohon Merkle ($k$)</span>
+                    <span class="step-desc">Menghitung jumlah setoran valid sebelum root penarikan diterbitkan.</span>
+                  </div>
+                  <span class="step-status-tag" id="f-step-tag-2">Menunggu</span>
+                </div>
+                <div class="step-card" id="f-step-3">
+                  <div class="step-num">3</div>
+                  <div class="step-details">
+                    <span class="step-name">Korelasi Temporal &amp; Denominasi</span>
+                    <span class="step-desc">Mencocokkan nilai deposit dengan akumulasi split 4 penerima.</span>
+                  </div>
+                  <span class="step-status-tag" id="f-step-tag-3">Menunggu</span>
+                </div>
+                <div class="step-card" id="f-step-4">
+                  <div class="step-num">4</div>
+                  <div class="step-details">
+                    <span class="step-name">Analisis Sumber Gas / Common Funder</span>
+                    <span class="step-desc">Mendeteksi transaksi pendanaan gas awal antar alamat terkait.</span>
+                  </div>
+                  <span class="step-status-tag" id="f-step-tag-4">Menunggu</span>
+                </div>
+                <div class="step-card" id="f-step-5">
+                  <div class="step-num">5</div>
+                  <div class="step-details">
+                    <span class="step-name">Kalkulasi Skor &amp; Tersangka</span>
+                    <span class="step-desc">Menghitung matriks probabilitas dan menentukan tersangka utama.</span>
+                  </div>
+                  <span class="step-status-tag" id="f-step-tag-5">Menunggu</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="forensic-results" id="forensic-results" hidden>
+            <!-- Summary Metric Cards -->
+            <div class="forensic-metrics-grid">
+              <!-- Card 1: Anonymity Set Meter -->
+              <div class="f-metric-card" id="card-anonymity-set">
+                <div class="f-card-header">
+                  <span class="f-card-title">Ukuran Anonymity Set ($k$)</span>
+                  <span class="f-help-icon" title="Jumlah setoran yang sah sebelum Merkle Root diterbitkan. Jika k=1, anonimitas runtuh!">ℹ️</span>
+                </div>
+                <div class="f-k-value" id="f-k-value">k = —</div>
+                <div class="f-k-status" id="f-k-status">⚪ MENUNGGU SCAN</div>
+                <p class="f-card-desc" id="f-k-desc">Ukuran anonymity set akan dihitung dari jumlah daun deposit pada pohon Merkle sebelum penarikan.</p>
+              </div>
+
+              <!-- Card 2: Prime Suspect -->
+              <div class="f-metric-card highlight-suspect" id="card-prime-suspect">
+                <div class="f-card-header">
+                  <span class="f-card-title">Tersangka Utama (Penyetor Asli)</span>
+                  <span class="confidence-badge-pill badge-neutral" id="f-suspect-confidence">⚪ MENUNGGU HASIL</span>
+                </div>
+                <div class="f-card-body blurred" id="f-suspect-body">
+                  <div class="f-suspect-address" id="f-suspect-address">— (Belum Dianalisis)</div>
+                  <div class="f-progress-wrap">
+                    <div class="f-progress-bar" id="f-suspect-progress" style="width: 0%;"></div>
+                  </div>
+                  <p class="f-card-desc" id="f-suspect-summary">Identitas tersangka utama akan diungkap setelah evaluasi 5 pilar forensik selesai.</p>
+                </div>
+              </div>
+
+              <!-- Card 3: Payout Details -->
+              <div class="f-metric-card" id="card-payout-details">
+                <div class="f-card-header">
+                  <span class="f-card-title">Total Aliran Keluar (Split)</span>
+                  <span class="f-tag" id="f-payout-tag">— Penerima</span>
+                </div>
+                <div class="f-card-body blurred" id="f-payout-body">
+                  <div class="f-amount-val" id="f-total-amount">— ETH</div>
+                  <div class="f-split-detail" id="f-split-detail">@ — ETH per dompet penerima</div>
+                  <div class="f-relayer-info" id="f-relayer-info">Kurir: —</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 5 Pillars Forensic Evidence Inspector -->
+            <div class="forensic-pillars-box">
+              <h4 class="pillars-title">🔬 Rincian Bukti Forensik 5 Pilar:</h4>
+              <div class="pillars-list" id="pillars-list">
+                <div class="pillar-row passed">
+                  <span class="p-icon">🌲</span>
+                  <div class="p-content">
+                    <span class="p-label">Pilar 1: Rekonstruksi Pohon Merkle ($k$-Anonymity)</span>
+                    <p class="p-desc" id="p1-desc">Merkle Root cocok dengan status daun pada saat setoran dilakukan. Tidak ada pesaing lain.</p>
+                  </div>
+                  <span class="p-badge high" id="p1-points">+60 Poin</span>
+                </div>
+
+                <div class="pillar-row passed">
+                  <span class="p-icon">⏱️</span>
+                  <div class="p-content">
+                    <span class="p-label">Pilar 2: Korelasi Temporal & Denominasi</span>
+                    <p class="p-desc" id="p2-desc">Denominasi brankas bernilai tepat sama dengan total pencairan.</p>
+                  </div>
+                  <span class="p-badge high" id="p2-points">+30 Poin</span>
+                </div>
+
+                <div class="pillar-row">
+                  <span class="p-icon">⛽</span>
+                  <div class="p-content">
+                    <span class="p-label">Pilar 3: Analisis Graf Rantai & Sumber Gas (Common Gas Funder)</span>
+                    <p class="p-desc" id="p3-desc">Memeriksa apakah penyetor pernah mendanai saldo ETH awal dari 4 dompet penerima.</p>
+                  </div>
+                  <span class="p-badge neutral" id="p3-badge">Diperiksa</span>
+                </div>
+
+                <div class="pillar-row">
+                  <span class="p-icon">🌐</span>
+                  <div class="p-content">
+                    <span class="p-label">Pilar 4: Metadata Jaringan & Log Server API Bridge</span>
+                    <p class="p-desc" id="p4-desc">Log server Express (`POST /api/deposit` dan `POST /api/prove`) berasal dari IP klien yang sama.</p>
+                  </div>
+                  <span class="p-badge neutral">Off-Chain</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- All Candidates Ranking Table -->
+            <div class="forensic-candidates-box">
+              <div class="candidates-header">
+                <h4 class="candidates-title">📊 Matriks Evaluasi Semua Kandidat Penyetor:</h4>
+                <span class="candidates-subtitle">Peringkat kecurigaan berdasarkan skor keyakinan forensik</span>
+              </div>
+              <div class="candidates-table-wrap">
+                <table class="forensic-table" id="forensic-candidates-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Alamat Penyetor</th>
+                      <th>Tx Setoran</th>
+                      <th>Blok</th>
+                      <th>Nominal</th>
+                      <th>Jeda Waktu</th>
+                      <th>Skor Keyakinan</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="candidates-table-body">
+                    <tr>
+                      <td colspan="8" style="text-align:center; padding: 20px; color: #9ca3af;">
+                        Menunggu pemindaian on-chain... Tekan tombol "Scan On-Chain" di atas.
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            </div><!-- /forensic-results -->
+          </div>
+
+          <div class="forensic-modal-footer">
+            <div class="footer-left">
+              <span class="legal-disclaimer">⚖️ Berkas ini siap dilampirkan untuk pengajuan permohonan data KYC bursa terpusat (CEX Subpoena).</span>
+            </div>
+            <div class="footer-right">
+              <button class="modal-secondary-btn" id="btn-export-report">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                <span>Salin Bukti Forensik</span>
+              </button>
+              <button class="modal-primary-btn" id="btn-close-forensic-bottom">Selesai Memeriksa</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- FLOATING TX COMPLETION BANNER (1-CLICK AUDIT) -->
+      <div class="floating-tx-banner" id="floating-tx-banner">
+        <div class="banner-glow-strip"></div>
+        <div class="banner-content">
+          <div class="banner-top">
+            <div class="banner-badge">
+              <span class="live-dot-green"></span>
+              <span>TRANSAKSI ON-CHAIN TERKONFIRMASI</span>
+            </div>
+            <button class="banner-dismiss-btn" id="btn-dismiss-banner" title="Tutup">×</button>
+          </div>
+          <div class="banner-title" id="banner-title">Putaran #1 Berhasil Dicairkan ke 4 Penerima!</div>
+          <div class="banner-hashes-wrap">
+            <div class="banner-hash-row">
+              <span class="hash-tag">Deposit Tx:</span>
+              <span class="hash-val" id="banner-deposit-tx">0x...</span>
+              <button class="banner-copy-btn" id="btn-banner-copy-deposit" title="Salin Hash Setoran">📋</button>
+            </div>
+            <div class="banner-hash-row highlight-withdraw">
+              <span class="hash-tag">Withdraw Tx:</span>
+              <span class="hash-val" id="banner-withdraw-tx">0x...</span>
+              <button class="banner-copy-btn" id="btn-banner-copy-withdraw" title="Salin Hash Pencairan">📋</button>
+            </div>
+          </div>
+          <div class="banner-actions">
+            <button class="banner-audit-btn" id="btn-banner-audit-now">
+              <span>🕵️‍♂️ Buka & Audit Forensik Transaksi Ini Langsung</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- TOAST NOTIFICATION -->
+      <div class="app-toast" id="app-toast">Hash berhasil disalin ke clipboard!</div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -5,7 +5,7 @@
 
 ---
 
-[ 🇨🇳 简体中文 ](./README_zh.md) • [ 🇺🇸 English ](./README_en.md) • [ 🇮🇩 Bahasa Indonesia ](./README.md)
+[ 🇨🇳 简体中文 ](./README_zh.md) • [ 🇺🇸 English ](./README_en.md) • [ 🇮🇩 Bahasa Indonesia ](../README.md)
 
 ---
 
@@ -115,11 +115,13 @@ sequenceDiagram
 
 ```
 blockchain/
-├── dokumen/
+├── docs/
+│   ├── README_en.md                        # 英文文档 (English documentation)
+│   ├── README_zh.md                        # 简体中文文档 (Simplified Chinese)
 │   ├── PROJECT_SUMMARY.md                  # 架构与项目技术总结
-│   └── PANDUAN_AUDIT_INVESTIGASI_FORENSIK.md # 链上数字取证标准作业程序（SOP）
-├── walkthrough_result_zk_splitter.md       # 验证与测试运行记录
-├── zk_splitter_plan.md                     # 开发实现计划书
+│   ├── PANDUAN_AUDIT_INVESTIGASI_FORENSIK.md # 链上数字取证标准作业程序（SOP）
+│   ├── walkthrough_result_zk_splitter.md   # 验证与测试运行记录
+│   └── zk_splitter_plan.md                 # 开发实现计划书
 └── zk-splitter-demo/
     ├── circuits/
     │   └── splitter.circom                 # Circom 零知识证明电路源码

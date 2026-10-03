@@ -26,7 +26,7 @@ Proyek ini dibangun secara *full-stack*, mencakup sirkuit matematika ZK, smart c
 
 ```
 blockchain/
-├── dokumen/
+├── docs/
 │   └── PROJECT_SUMMARY.md             <-- (Dokumen ini)
 └── zk-splitter-demo/
     ├── circuits/

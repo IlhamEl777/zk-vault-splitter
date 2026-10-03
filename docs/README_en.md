@@ -5,7 +5,7 @@
 
 ---
 
-[ 🇺🇸 English ](./README_en.md) • [ 🇮🇩 Bahasa Indonesia ](./README.md) • [ 🇨🇳 简体中文 ](./README_zh.md)
+[ 🇺🇸 English ](./README_en.md) • [ 🇮🇩 Bahasa Indonesia ](../README.md) • [ 🇨🇳 简体中文 ](./README_zh.md)
 
 ---
 
@@ -115,11 +115,13 @@ sequenceDiagram
 
 ```
 blockchain/
-├── dokumen/
+├── docs/
+│   ├── README_en.md                        # English documentation
+│   ├── README_zh.md                        # Simplified Chinese documentation (简体中文)
 │   ├── PROJECT_SUMMARY.md                  # Comprehensive technical architecture
-│   └── PANDUAN_AUDIT_INVESTIGASI_FORENSIK.md # Forensic investigative SOP
-├── walkthrough_result_zk_splitter.md       # Verification & test execution log
-├── zk_splitter_plan.md                     # Initial implementation plan
+│   ├── PANDUAN_AUDIT_INVESTIGASI_FORENSIK.md # Forensic investigative SOP
+│   ├── walkthrough_result_zk_splitter.md   # Verification & test execution log
+│   └── zk_splitter_plan.md                 # Initial implementation plan
 └── zk-splitter-demo/
     ├── circuits/
     │   └── splitter.circom                 # Circom ZK-SNARK circuit

@@ -67,14 +67,22 @@ export class ForensicInvestigator {
     let targetReceipt: ethers.TransactionReceipt | null = null;
 
     if (!targetTxHash) {
-      // Find latest WithdrawSplit event
+      // Find latest WithdrawSplit or ScheduledSplitCreated event
       const withdrawFilter = vault.filters.WithdrawSplit();
+      const scheduledFilter = vault.filters.ScheduledSplitCreated();
       const currentBlock = await this.provider.getBlockNumber();
-      const events = await vault.queryFilter(withdrawFilter, 0, currentBlock);
-      if (events.length === 0) {
-        throw new Error("Belum ada transaksi WithdrawSplit yang ditemukan di smart contract!");
+      const [eventsEqual, eventsStealth] = await Promise.all([
+        vault.queryFilter(withdrawFilter, 0, currentBlock),
+        vault.queryFilter(scheduledFilter, 0, currentBlock),
+      ]);
+      const allWithdrawEvents = [...eventsEqual, ...eventsStealth].sort((a, b) => {
+        if (a.blockNumber !== b.blockNumber) return a.blockNumber - b.blockNumber;
+        return a.index - b.index;
+      });
+      if (allWithdrawEvents.length === 0) {
+        throw new Error("Belum ada transaksi pencairan (WithdrawSplit / ScheduledSplit) yang ditemukan di smart contract!");
       }
-      const latestEvent = events[events.length - 1];
+      const latestEvent = allWithdrawEvents[allWithdrawEvents.length - 1];
       targetTxHash = latestEvent.transactionHash;
       targetReceipt = await this.provider.getTransactionReceipt(targetTxHash);
     } else {
@@ -85,21 +93,63 @@ export class ForensicInvestigator {
       throw new Error(`Receipt untuk transaksi ${targetTxHash} tidak ditemukan.`);
     }
 
-    const tx = await this.provider.getTransaction(targetTxHash);
+    let tx = await this.provider.getTransaction(targetTxHash);
     if (!tx) {
       throw new Error(`Transaksi ${targetTxHash} tidak ditemukan di blockchain.`);
     }
 
-    // Decode WithdrawSplit event
-    let withdrawEvent: any = null;
+    // Check if this transaction is a ScheduledPayoutDispatched (keeper slot execution)
+    // If so, redirect investigation to the parent batch creation transaction
     for (const log of targetReceipt.logs) {
       try {
         const parsed = vault.interface.parseLog({
           topics: log.topics as string[],
           data: log.data,
         });
-        if (parsed && parsed.name === "WithdrawSplit") {
+        if (parsed && parsed.name === "ScheduledPayoutDispatched") {
+          const hasCreation = targetReceipt.logs.some((l) => {
+            try {
+              const p = vault.interface.parseLog({ topics: l.topics as string[], data: l.data });
+              return p && p.name === "ScheduledSplitCreated";
+            } catch {
+              return false;
+            }
+          });
+          if (!hasCreation) {
+            // It's a secondary execution tx. Find the creation tx by batchId.
+            const batchId = parsed.args.batchId;
+            const parentFilter = vault.filters.ScheduledSplitCreated(batchId);
+            const parentEvents = await vault.queryFilter(parentFilter, 0, targetReceipt.blockNumber);
+            if (parentEvents.length > 0) {
+              targetTxHash = parentEvents[0].transactionHash;
+              const parentReceipt = await this.provider.getTransactionReceipt(targetTxHash);
+              const parentTx = await this.provider.getTransaction(targetTxHash);
+              if (parentReceipt && parentTx) {
+                targetReceipt = parentReceipt;
+                tx = parentTx;
+              }
+            }
+          }
+          break;
+        }
+      } catch {
+        // Not a vault log
+      }
+    }
+
+    // Decode WithdrawSplit or ScheduledSplitCreated event
+    let withdrawEvent: any = null;
+    let splitMode: "equal" | "stealth" = "equal";
+
+    for (const log of targetReceipt.logs) {
+      try {
+        const parsed = vault.interface.parseLog({
+          topics: log.topics as string[],
+          data: log.data,
+        });
+        if (parsed && (parsed.name === "WithdrawSplit" || parsed.name === "ScheduledSplitCreated")) {
           withdrawEvent = parsed;
+          splitMode = parsed.name === "ScheduledSplitCreated" ? "stealth" : "equal";
           break;
         }
       } catch (e) {
@@ -108,22 +158,46 @@ export class ForensicInvestigator {
     }
 
     if (!withdrawEvent) {
-      throw new Error("Transaksi tersebut bukan merupakan pemanggilan withdrawSplit yang valid!");
+      throw new Error("Transaksi tersebut bukan merupakan pemanggilan withdrawSplit atau withdrawScheduledSplit yang valid!");
     }
 
-    // Decode calldata to get _root
-    const decodedCalldata = vault.interface.decodeFunctionData("withdrawSplit", tx.data);
-    const rootBigInt = BigInt(decodedCalldata._root.toString());
-    const merkleRootHex = "0x" + rootBigInt.toString(16);
+    let rootBigInt = 0n;
+    let merkleRootHex = "";
+    let nullifierHashHex = "";
+    let recipients: string[] = [];
+    let amountPerRecipientEth = "0";
+    let totalWithdrawnEth = "0";
+    let relayerAddress = "";
 
-    const nullifierHashBigInt = BigInt(withdrawEvent.args.nullifierHash.toString());
-    const nullifierHashHex = "0x" + nullifierHashBigInt.toString(16);
+    if (splitMode === "stealth") {
+      const decodedCalldata = vault.interface.decodeFunctionData("withdrawScheduledSplit", tx.data);
+      rootBigInt = BigInt(decodedCalldata._root.toString());
+      merkleRootHex = "0x" + rootBigInt.toString(16);
 
-    const recipients = (withdrawEvent.args.recipients as string[]).map((r) => r.toLowerCase());
-    const amountPerRecipient = BigInt(withdrawEvent.args.amountPerRecipient.toString());
-    const amountPerRecipientEth = ethers.formatEther(amountPerRecipient);
-    const totalWithdrawnEth = ethers.formatEther(amountPerRecipient * 4n);
-    const relayerAddress = withdrawEvent.args.relayer.toLowerCase();
+      const nullifierHashBigInt = BigInt(withdrawEvent.args.nullifierHash.toString());
+      nullifierHashHex = "0x" + nullifierHashBigInt.toString(16);
+
+      recipients = (withdrawEvent.args.recipients as string[]).map((r) => r.toLowerCase());
+      const rawAmounts = withdrawEvent.args.amounts as any[];
+      const amountsWei = rawAmounts.map((a) => BigInt(a.toString()));
+      const totalWei = amountsWei.reduce((sum, a) => sum + a, 0n);
+      totalWithdrawnEth = ethers.formatEther(totalWei);
+      amountPerRecipientEth = (parseFloat(totalWithdrawnEth) / 4).toFixed(4);
+      relayerAddress = withdrawEvent.args.relayer.toLowerCase();
+    } else {
+      const decodedCalldata = vault.interface.decodeFunctionData("withdrawSplit", tx.data);
+      rootBigInt = BigInt(decodedCalldata._root.toString());
+      merkleRootHex = "0x" + rootBigInt.toString(16);
+
+      const nullifierHashBigInt = BigInt(withdrawEvent.args.nullifierHash.toString());
+      nullifierHashHex = "0x" + nullifierHashBigInt.toString(16);
+
+      recipients = (withdrawEvent.args.recipients as string[]).map((r) => r.toLowerCase());
+      const amountPerRecipient = BigInt(withdrawEvent.args.amountPerRecipient.toString());
+      amountPerRecipientEth = ethers.formatEther(amountPerRecipient);
+      totalWithdrawnEth = ethers.formatEther(amountPerRecipient * 4n);
+      relayerAddress = withdrawEvent.args.relayer.toLowerCase();
+    }
 
     const withdrawBlockData = await this.provider.getBlock(targetReceipt.blockNumber);
     const withdrawTimestamp = withdrawBlockData ? withdrawBlockData.timestamp : Math.floor(Date.now() / 1000);
@@ -174,6 +248,7 @@ export class ForensicInvestigator {
       return parseFloat(depEth).toFixed(4) === parseFloat(totalWithdrawnEth).toFixed(4);
     });
     const denomAnonymitySize = matchingDenomCandidates.length;
+    const blockCache = new Map<number, any>();
 
     // Evaluate each candidate in the anonymity set
     for (let i = 0; i < candidateDeposits.length; i++) {
@@ -217,7 +292,11 @@ export class ForensicInvestigator {
         // Search past blocks for direct transfer from depositor to recipients
         const scanStart = Math.max(0, cand.blockNumber - 50);
         for (let b = scanStart; b <= targetReceipt.blockNumber; b++) {
-          const block = await this.provider.getBlock(b, true);
+          let block = blockCache.get(b);
+          if (!block) {
+            block = await this.provider.getBlock(b, true);
+            if (block) blockCache.set(b, block);
+          }
           if (block && block.prefetchedTransactions) {
             for (const txItem of block.prefetchedTransactions) {
               if (txItem.from.toLowerCase() === cand.depositor && recipients.includes(txItem.to?.toLowerCase() || "")) {
@@ -272,7 +351,7 @@ export class ForensicInvestigator {
     } else if (primeSuspect && primeSuspect.confidence === "MEDIUM") {
       executiveSummary = `INDIKASI AWAL: Alamat ${primeSuspect.depositorAddress} merupakan kandidat mencurigakan teratas dengan Skor Keyakinan ${primeSuspect.score}% (MEDIUM CONFIDENCE). Dibutuhkan data tambahan metadata relayer/ISP untuk konfirmasi 100%.`;
     } else {
-      executiveSummary = `BUKTI BELUM KONKLUSIF: Anonymity set cukup besar (k=${anonymitySetSize}) tanpa tautan langsung yang cukup kuat.`;
+      executiveSummary = `DE-ANONIMISASI GAGAL (PRIVASI AMAN): Tidak ditemukan tersangka utama. Setoran telah mengendap (Deposit Aging) dan terlindung di dalam kerumunan penyetor (k=${anonymitySetSize}). Identitas penyetor asli tidak dapat dibuktikan secara statistik.`;
     }
 
     return {

@@ -1,49 +1,70 @@
 # 🛡️ ZK-Vault Splitter: Ringkasan Proyek & Dokumentasi Arsitektur
 
-Dokumen ini merangkum arsitektur, implementasi teknis, model keamanan kriptografi, dan fitur visualizer interaktif dari proyek **ZK-Vault Splitter (1-to-4 Anonymous Privacy Pool)**.
+Dokumen ini merangkum arsitektur, implementasi teknis, model keamanan kriptografi, modul otomasi, simulator audit forensik, dan visualizer interaktif dari proyek **ZK-Vault Splitter (1-to-4 Anonymous Privacy Pool & Forensic Investigation Simulator)**.
 
 ---
 
 ## 📌 1. Gambaran Umum Proyek (Executive Overview)
 
-**ZK-Vault Splitter** adalah protokol privasi berbasis blockchain Ethereum Virtual Machine (EVM) yang memanfaatkan kriptografi **Zero-Knowledge Proofs (ZK-SNARKs)** untuk memutus hubungan graf transaksi (*unlinking transaction graph*) antara pengirim (*depositor*) dan 4 penerima (*recipients*).
+**ZK-Vault Splitter** adalah protokol privasi terdesentralisasi di atas Ethereum Virtual Machine (EVM) yang memanfaatkan kriptografi **Zero-Knowledge Proofs (ZK-SNARKs Groth16)** untuk memutus hubungan graf transaksi (*unlinking transaction graph*) antara pengirim (*depositor*) dan 4 penerima (*recipients*).
 
 ### Masalah pada Blockchain Konvensional:
-Pada blockchain publik (seperti Ethereum), seluruh riwayat transfer bersifat transparan. Jika Alice mentransfer dana ke Bob, Charlie, Dave, dan Eve, siapa pun dapat melihat langsung bahwa dana tersebut berasal dari Alice melalui penjelajah blok (*block explorer*).
+Pada buku besar publik (*public ledger*) seperti Ethereum, seluruh riwayat transaksi tercatat secara transparan. Jika Alice mentransfer dana ke Bob, Charlie, Dave, dan Eve, siapa pun dapat menghubungkan graf transaksi tersebut secara langsung melalui penjelajah blok (*block explorer*).
 
-### Solusi ZK-Vault Splitter:
-1. Penyetor memasukkan dana ke dalam brankas cerdas (*smart contract*) dengan menyertakan **Commitment Hash** (hasil hash dari angka rahasia acak).
-2. Ketika dana dicairkan, kurir independen (*Relayer*) memanggil fungsi pencairan atas nama penerima dengan membawa **Bukti Zero-Knowledge (ZK-SNARK Proof)**.
-3. Kontrak memverifikasi bukti matematika tersebut tanpa pernah mengetahui siapa penyetor aslinya.
-4. Dana sebesar denominasi brankas langsung dipecah 4 dan ditransfer secara on-chain ke 4 dompet penerima.
-5. **Hasil Audit On-Chain:** Tidak ada tautan transaksi atau alamat yang menghubungkan penyetor dengan penerima.
+### Solusi Komprehensif ZK-Vault Splitter:
+1. **Setoran Terlindungi (*Shielded Deposit*):** Penyetor menyetorkan dana ke brankas cerdas (*smart contract*) dengan menyertakan nilai komitmen kriptografi:  
+   $$\text{Commitment} = \text{Poseidon}(\text{Nullifier}, \text{Secret})$$  
+   Alamat dompet penyetor **tidak pernah dicatat** di dalam daun pohon privasi.
+2. **Pembuktian Tanpa Pengetahuan (*ZK-SNARK Proof Generation*):** Penyetor membuat bukti matematika tanpa mengungkap rahasia privat (`secret`, `nullifier`) maupun alamat aslinya. Alamat 4 penerima dikunci ke dalam *public inputs* sirkuit ZK agar bukti kebal dari pembajakan.
+3. **Pencairan Tanpa Gas (*Gasless Relaying*):** Kurir independen (*Relayer*) mengirimkan transaksi pencairan ke smart contract atas nama penerima.
+4. **Pilihan Mode Split Ganda (*Dual Split Modes*):**
+   - **Mode 1: 25% Rata Seketika (*Instant Equal Split*):** Dana denominasi brankas langsung dipecah rata ($1/4$) dan ditransfer seketika dalam 1 blok transaksi ke 4 penerima (`withdrawSplit`).
+   - **Mode 2: Stealth Acak & Terjadwal (*Stealth Staggered & Randomized Split*):** Brankas membagi dana dengan nominal acak ($\sum \text{amounts} == \text{denomination}$) dan jadwal jeda waktu (*timelock delays* 0–120 detik) per dompet (`withdrawScheduledSplit`). Slot pertama (jeda 0s) langsung dikirimkan instan, sedangkan slot sisanya disimpan dalam **On-Chain Timelock Escrow** dan dieksekusi otomatis oleh **Relayer Keeper Bot** saat waktu jeda jatuh tempo.
+5. **Mitigasi Analisis Heuristik:** Memutus jejak graf transaksi, mengaburkan pola nominal kembar (*amount clustering*), serta memecah korelasi stempel waktu blok (*temporal correlation*).
+6. **Simulator Pertahanan & Penuaan Pool (*Deposit Aging & Decoy Traffic*):** Menyediakan mekanisme injeksi setoran umpan (*decoy deposits*) untuk memperbesar ukuran himpunan anonimitas ($k$-anonymity pool expansion), membendung serangan de-anonimisasi ketika $k=1$.
+7. **Modul Pengujian Kekebalan Serangan (*Attack Immunity Verification*):** Panel pengujian langsung untuk mensimulasikan serangan pembajakan kurir (*Relayer Hijacking*) dan pengeluaran ganda (*Double-Spending*), membuktikan penolakan matematis dan on-chain secara deterministik.
+8. **Modul Audit Forensik & De-anonimisasi (*Forensic Investigator Engine*):** Simulator analisis forensik berbasis metodologi 5 pilar untuk menguji ketahanan privasi transaksi.
 
 ---
 
 ## 🏗️ 2. Komponen & Struktur Repositori
 
-Proyek ini dibangun secara *full-stack*, mencakup sirkuit matematika ZK, smart contract Solidity, backend bridge, dan antarmuka node-graph visualizer:
+Proyek ini dibangun secara *full-stack*, mencakup sirkuit matematika ZK, smart contract Solidity, backend bridge dengan daemon Keeper, dan antarmuka node-graph visualizer:
 
 ```
 blockchain/
+├── README.md                          <-- Dokumentasi Utama Repositori (Bahasa Indonesia)
 ├── docs/
-│   └── PROJECT_SUMMARY.md             <-- (Dokumen ini)
+│   ├── PROJECT_SUMMARY.md             <-- (Dokumen ini) Ringkasan teknis & arsitektur proyek
+│   ├── PANDUAN_AUDIT_INVESTIGASI_FORENSIK.md <-- Standar Operasional Prosedur (SOP) Audit Forensik
+│   ├── README_en.md                   <-- Dokumentasi Versi Bahasa Inggris
+│   ├── README_id.md                   <-- Dokumentasi Versi Bahasa Indonesia
+│   ├── README_zh.md                   <-- Dokumentasi Versi Bahasa Mandarin
+│   └── zk_splitter_plan.md            <-- Arsip Rencana Awal Proyek
 └── zk-splitter-demo/
     ├── circuits/
-    │   └── splitter.circom            <-- Sirkuit ZK-SNARK Circom (2,423 constraints)
+    │   └── splitter.circom            <-- Sirkuit ZK-SNARK Circom (2.423 constraints R1CS)
     ├── contracts/
-    │   ├── ZKVault.sol                <-- Smart Contract Brankas & Logika Splitter
+    │   ├── ZKVault.sol                <-- Smart Contract Brankas, Splitter & Timelock Escrow
     │   └── Groth16Verifier.sol        <-- Kontrak Verifier ZK (Autogenerated SnarkJS)
+    ├── test/
+    │   ├── zk-splitter.test.ts        <-- Unit test 4/4 alur dasar, double-spending & hijacking
+    │   └── zk-scheduled-split.test.ts <-- Unit test 3/3 stealth timed & random split
     ├── build/                         <-- Kunci ZK (.zkey, .wasm, vkey.json)
     ├── src/
-    │   └── zk-utils.ts                <-- Library utilitas ZK (Merkle Tree & Prover)
-    ├── api-bridge.ts                  <-- REST API Bridge (Express + Ethers.js + SnarkJS)
+    │   ├── zk-utils.ts                <-- Utilitas Merkle Tree Poseidon & Groth16 Prover
+    │   └── forensic-engine.ts         <-- Mesin Analisis Forensik 5-Pilar On-Chain
+    ├── scripts/
+    │   ├── deploy-and-simulate.ts     <-- Skrip deployment lokal & simulasi alur ZK
+    │   ├── simulate-multitx.ts        <-- Skrip injeksi setoran multi-transaksi
+    │   └── test-k1.ts                 <-- Skrip uji de-anonimisasi skenario k=1
+    ├── api-bridge.ts                  <-- REST API Bridge (12 endpoints) + Relayer Keeper Daemon
     ├── deployed-contracts.json        <-- Alamat deploy & kunci akun lokal
     └── frontend/
-        ├── index.html                 <-- Tampilan Web Node-Graph Visualizer
+        ├── index.html                 <-- Tampilan Web Node-Graph Visualizer (Soft-Neobrutalism)
         ├── src/
-        │   ├── main.ts                <-- Logika Kanvas, Bezier Cables, & Integrasi API
-        │   └── style.css              <-- Desain Cyberpunk Glassmorphism Responsif
+        │   ├── main.ts                <-- Logika Kanvas, Stealth Sliders, Audio FX, & Queue Poller
+        │   └── style.css              <-- Desain Neobrutalism Responsif & Animasi Progress
         └── package.json
 ```
 
@@ -51,99 +72,134 @@ blockchain/
 
 ## ⚡ 3. Alur Kerja Kriptografi (End-to-End Cryptographic Flow)
 
-Alur transaksi terbagi secara aman antara **Off-Chain (Browser/Klien)** dan **On-Chain (Smart Contract)**:
-
 ```
-[ 1. Penyetor (Off-Chain) ]
-   │  Secret + Nullifier (254-bit) ──> Poseidon Hash ──> Commitment
+[ 1. Penyetor (Off-Chain / Klien Browser) ]
+   │  Secret + Nullifier (254-bit Random) ──> Poseidon Hash ──> Commitment
    │
-   ▼  Kirim Transaksi On-Chain: deposit{value: X ETH}(Commitment)
+   ▼  Kirim Transaksi On-Chain: deposit{value: Denomination ETH}(Commitment)
 [ 2. Smart Contract ZKVault (On-Chain) ]
    │  • Saldo Brankas bertambah (+X ETH)
-   │  • Masukkan Commitment ke Daun Pohon Merkle (Poseidon Tree, Depth 8)
-   │  • Perbarui Merkle Root on-chain
+   │  • Masukkan Commitment ke Daun Pohon Merkle (Poseidon Tree, Depth 8, Kapasitas 256)
+   │  • Perbarui Merkle Root on-chain (isKnownRoot)
    │
    ▼  Ambil Merkle Root & Sibling Path
-[ 3. ZK-SNARK Prover (Off-Chain / SnarkJS) ]
+[ 3. ZK-SNARK Prover (Off-Chain / SnarkJS Groth16) ]
    │  • Input Privat : secret, nullifier, pathElements, pathIndices
    │  • Input Publik : root, nullifierHash, recipient[0..3]
    │  • Menghasilkan Proof (pA, pB, pC) dalam ~300ms
    │
-   ▼  Kirim Bukti via Jalur Aman (Relayer Membayar Gas)
-[ 4. Kurir Relayer (Off-Chain ──> On-Chain) ]
-   │  • Memanggil withdrawSplit(pA, pB, pC, root, nullifierHash, recipients)
+   ▼  Kirim Bukti ke Kurir Relayer (Gasless untuk Pengguna)
+[ 4. Kurir Relayer & Smart Contract Pencairan ]
    │
-   ▼  Verifikasi & Pencairan Seketika
-[ 5. 4 Dompet Penerima (On-Chain) ]
-   • Kontrak mengecek:
-       ✓ isKnownRoot(root) == true
-       ✓ nullifierSpent[nullifierHash] == false
-       ✓ Groth16Verifier.verifyProof(...) == true
-   • nullifierSpent[nullifierHash] = true (Cegah Double-Spending)
-   • Mentransfer (X / 4 ETH) langsung ke masing-masing 4 dompet
+   ├─► [ Pilihan 1: Instant Equal Split ]
+   │   • Panggil: withdrawSplit(pA, pB, pC, root, nullifierHash, recipients)
+   │   • Verifikasi proof & bakar nullifier (nullifierSpent[hash] = true)
+   │   • Transfer instan (Denominasi / 4 ETH) ke 4 penerima dalam 1 transaksi
+   │   • Emit: WithdrawSplit(...)
+   │
+   └─► [ Pilihan 2: Stealth Staggered & Randomized Split ]
+       • Panggil: withdrawScheduledSplit(pA, pB, pC, root, nullifierHash, recipients, amounts, delays)
+       • Verifikasi proof, bakar nullifier, validasi sum(amounts) == denomination
+       • Buat Batch ID: keccak256(nullifierHash, timestamp, relayer)
+       • Slot 0 (Jeda 0s) ──> Langsung ditransfer seketika ke Penerima 1
+       • Slot 1..3 (Jeda > 0s) ──> Didaftarkan ke On-Chain Timelock Escrow
+       • Emit: ScheduledSplitCreated(...) & ScheduledPayoutDispatched(...)
+       │
+       ▼  Daemon Relayer Keeper Bot (Interval 1.5 detik otonom)
+       • Memantau blok dan antrean batch on-chain
+       • Ketika block.timestamp >= releaseTime:
+         Panggil: executeScheduledPayout(batchId, slotIndex)
+       • Kontrak mentransfer dana slot langsung ke penerima yang berhak
+       • Emit: ScheduledPayoutDispatched(...)
+       • Status batch berubah menjadi 'completed' saat seluruh 4 slot selesai
+
+[ 5. Hasil Akhir di Dompet Penerima ]
    • Saldo Brankas kembali ke 0.0000 ETH
+   • Penerima menerima dana dalam waktu dan nominal bervariasi, memutus korelasi on-chain
 ```
 
 ---
 
-## 🔒 4. Model Keamanan & Pencegahan Serangan
+## 🔒 4. Model Keamanan, Pengujian Serangan & Pertahanan Protokol
 
-| Skenario Ancaman | Mekanisme Pertahanan Protokol | Hasil Uji Sistem |
+| Skenario Ancaman | Mekanisme Pertahanan Protokol | Hasil Uji Sistem / Status Verifikasi |
 | :--- | :--- | :--- |
 | **Pelacakan Jejak (De-anonymization)** | Alamat penyetor tidak disimpan dalam daun Merkle. Kontrak hanya memverifikasi bukti matematika ZK. | **Aman**: Alamat penyetor tidak pernah muncul dalam transaksi pencairan. |
-| **Double-Spending (Penarikan Berulang)** | Setiap setoran memiliki `nullifier`. Saat pencairan pertama, `nullifierHash` dicatat ke storage kontrak `nullifierSpent[hash] = true`. | **Aman**: Penarikan kedua dengan bukti yang sama langsung dibatalkan on-chain (`revert: Nullifier already spent`). |
-| **Sabotase Kurir (Front-Running / Hijacking)** | Kurir (Relayer) yang nakal mencoba mengganti 4 alamat penerima ke alamatnya sendiri. Namun, 4 alamat penerima telah **terkunci sebagai input publik sirkuit ZK**. | **Aman**: Perubahan 1 bit alamat penerima membuat bukti Groth16 tidak valid secara matematis (`revert: Invalid Zero-Knowledge proof`). |
-| **Fake Deposit Proof** | Pengguna mencoba membuat bukti tanpa pernah menyetor ke brankas. | **Aman**: Sirkuit mewajibkan pembuktian keanggotaan Merkle Tree terhadap root sah yang tercatat di smart contract. |
+| **Double-Spending (Pengeluaran Ganda)** | Setiap setoran memiliki `nullifier`. Saat pencairan pertama, `nullifierHash` dicatat ke storage kontrak `nullifierSpent[hash] = true`. | **Aman & Teruji**: Uji simulasi UI dan unit test membuktikan percobaan kedua langsung dibatalkan on-chain (`revert: Nullifier already spent`). |
+| **Sabotase Kurir (Relayer Hijacking / Front-Running)** | Kurir nakal mencoba mengganti salah satu alamat penerima ke alamatnya sendiri. Namun, 4 alamat penerima terikat permanen pada **public inputs sirkuit ZK**. | **Aman & Teruji**: Perubahan 1 bit alamat penerima membuat bukti Groth16 invalid secara matematis (`revert: Invalid Zero-Knowledge proof`). |
+| **Manipulasi Nominal Split (Theft/Inflation)** | Relayer nakal mengirim `amounts` yang tidak sama dengan denominasi brankas untuk mencuri sisa dana. | **Aman**: Smart contract memvalidasi `sum(amounts) == denomination` secara on-chain (`revert: Total amounts must equal vault denomination`). |
+| **Pelanggaran Waktu Timelock (Premature Payout)** | Pihak mana pun mencoba mengeksekusi slot terjadwal sebelum waktu jeda habis. | **Aman**: Smart contract memvalidasi `require(block.timestamp >= payout.releaseTime)` (`revert: Payout timelock not yet expired`). |
+| **Analisis Pola Waktu & Nominal (Heuristics)** | Perangkat lunak forensik mencari 4 transaksi ber-nominal sama persis di detik yang sama. | **Aman (Mode Stealth)**: Nominal diacak secara presisi dan transfer terpisah beberapa blok/waktu jeda sehingga memecah korelasi klaster. |
+| **Keruntuhan Anonymity Set ($k=1$)** | Penyetor mencairkan dana segera setelah deposit tanpa ada transaksi lain dalam brankas. | **Dapat Dideteksi & Dimitigasi**: Investigator mendeteksi $k=1$. Protokol menyediakan fitur **Deposit Aging & Decoy Traffic Simulation** (`/api/simulate-aging-traffic`) untuk memperbanyak kerumunan deposit ($k > 1$) sebelum pencairan, mengembalikan privasi ke status **AMAN**. |
+| **Fake Deposit Proof** | Pengguna mencoba membuat bukti ZK tanpa menyetor dana ke brankas. | **Aman**: Sirkuit mewajibkan pembuktian keanggotaan Merkle Tree terhadap root sah yang tercatat di smart contract (`isKnownRoot`). |
 
 ---
 
 ## 💻 5. Fitur Utama Visualizer Antarmuka (Frontend)
 
-Antarmuka demo dirancang dengan estetika modern **Dark Cyberpunk Glassmorphism** menyerupai alat grafis profesional (seperti ComfyUI):
+Antarmuka visualizer dibangun dengan estetika modern **Soft-Neobrutalism** (Plus Jakarta Sans, JetBrains Mono, crisp 2px dark borders, bold drop shadows, pastel badges, dan responsivitas tinggi):
 
-1. **Setup Dinamis Akun & Denominasi (Multi-Account Dynamic Setup):**
+1. **Pemilih Mode Split Ganda (*Dual Split Mode Selector*):**
+   - **`25% Rata Seketika`**: Membagi rata 1-ke-4 secara instan dalam 1 transaksi penarikan.
+   - **`🎲⏱️ Stealth (Acak & Jeda)`**: Membuka laci konfigurasi interaktif (*Stealth Drawer*) untuk mengatur nominal acak dan waktu tunda masing-masing penerima.
+   - Tombol **`🎲 Acak Semua`**: Mengacak nominal dan jeda secara otomatis dengan jaminan presisi eksak $\sum \text{amounts} == \text{denomination}$.
+   - Tombol Preset Cepat: **`⚡ Demo Cepat (10-30s)`** dan **`🕵️ Stealth (25-80s)`**.
+
+2. **Visualisasi Payout Bertahap & Live Countdown:**
+   - Node 5 (Recipients) menampilkan lencana countdown (*countdown pill*) dinamis (`⏳ Jeda 12s`, `⏱️ 4s`, atau `✅ Terkirim`) per kartu penerima.
+   - *Progress track bar* animasi yang terisi otomatis seiring waktu jeda timelock mendekati nol.
+   - Node 4 (Relayer) menampilkan indikator mode aktif (*Instant Batch Transfer* vs *Timelock Escrow Batch*).
+
+3. **Panel Simulasi Serangan Kriptografi (Attack Simulator Panel):**
+   - **Tombol Uji Hijacking:** Mensimulasikan kurir nakal yang membelokkan dana ke dompet penyerang. Menampilkan status penolakan matematis (*Groth16 Verifier Rejection*).
+   - **Tombol Uji Double-Spend:** Mensimulasikan penarikan ulang dengan bukti yang sama. Menampilkan status penolakan on-chain (*Nullifier Spent Revert*).
+
+4. **Simulasi Penuaan Pool & Setoran Umpan (*Pool Aging & Decoy Traffic*):**
+   - Tombol **`🧪 Simulasi Aging / Decoy Traffic`**: Menyuntikkan serangkaian deposit acak ke dalam brankas secara otomatis untuk memperbesar himpunan anonimitas ($k$-anonymity pool expansion), menguji ketahanan privasi terhadap simulator forensik.
+
+5. **Setup Dinamis Akun & Denominasi (Multi-Account Setup):**
    - Bebas memilih akun mana pun dari 5 akun lokal (*Alice, Bob, Charlie, Dave, Eve*) sebagai **Penyetor**.
    - 4 akun sisanya secara otomatis ditetapkan sebagai **Penerima**.
-   - Nominal brankas dapat disetel dinamis (preset: `0.4 ETH`, `1.0 ETH`, `2.0 ETH`, `4.0 ETH`, `10.0 ETH`, atau input bebas). Smart contract secara on-chain memperbarui nilai denominasi.
+   - Denominasi brankas dinamis: `0.4 ETH`, `1.0 ETH`, `2.0 ETH`, `4.0 ETH`, `10.0 ETH`, atau input bebas.
 
-2. **Sistem Kabel Bezier Interaktif (Interactive Bezier Cabling):**
-   - Kabel koneksi antar-node dapat dicopot dan disambungkan ke mana saja secara manual.
-   - **Deteksi Alur Kriptografi:** Jika kabel disambungkan ke port yang salah (melanggar alur logika ZK), kabel menyala merah, node bergetar, dan muncul tooltip peringatan kesalahan logika.
+6. **Sistem Kabel Bezier Interaktif (Interactive Bezier Cabling):**
+   - Kabel koneksi antar-node dapat dicopot dan disambungkan ke port mana saja.
+   - **Deteksi Kesalahan Alur Kriptografi:** Jika kabel disambungkan melanggar alur logika ZK, kabel menyala merah, node bergetar, dan muncul tooltip peringatan.
    - Tombol **[Auto-Wire]** untuk mengembalikan kabel ke konfigurasi baku dalam 1 klik.
 
-3. **Kanvas Multi-Mode Pan & Zoom:**
-   - Navigasi layar luas dengan *Mouse Wheel Zoom* dan *Trackpad Pinch*.
-   - Menggeser kanvas (*pan*) menggunakan klik kiri drag, klik tengah mouse, `Spasi + Drag`, atau tombol **Hand Pan Tool (`🖐️`)** di toolbar.
+7. **Kanvas Multi-Mode Pan & Zoom:**
+   - Navigasi luas dengan *Mouse Wheel Zoom* dan *Trackpad Pinch*.
+   - Menggeser kanvas (*pan*) menggunakan klik kiri drag, klik tengah mouse, `Spasi + Drag`, atau tombol **Hand Pan Tool (`🖐️`)**.
 
-4. **Live On-Chain Tracking & Transparansi Saldo Brankas:**
+8. **Live On-Chain Tracking & Transparansi Saldo Brankas:**
    - Sinkronisasi real-time dengan node blockchain Hardhat EVM (`127.0.0.1:8545`).
-   - Tampilan saldo brankas di Node 2 berubah live ke warna hijau (`+X.XX ETH`) saat uang masuk ke smart contract, dan kembali ke `0.0000 ETH` setelah smart contract membagikannya ke 4 penerima.
+   - Tampilan saldo brankas di Node 2 berubah live ke warna hijau (`+X.XX ETH`) saat deposit masuk, dan kembali ke `0.0000 ETH` setelah seluruh dana dicairkan.
 
-5. **Drawer Inspektur Samping yang Dapat Dilipat (Collapsible Drawer):**
-   - Panel kanan dapat diminimize ke samping (`›` / `‹`) untuk memberikan pandangan kanvas penuh, serta dapat di-scroll secara mandiri.
-   - Menampilkan telemetri runtime, log transaksi on-chain, status gas, dan basis data properti node.
+9. **Pelacak Riwayat Penarikan (Withdrawal History Tracker):**
+   - Menampilkan daftar batch transaksi pencairan sebelumnya lengkap dengan mode (Instant vs Stealth), stempel waktu, status tiap slot, dan tombol pintas langsung ke audit forensik.
 
-6. **Panduan Arsitektur Interaktif (In-App ZK Architecture Guide):**
-   - Tombol tanda tanya `(?)` di sudut kiri bawah membuka modal panduan visual interaktif lengkap dengan penjelasan sirkuit, smart contract, dan aturan kriptografi.
+10. **Mode Audit Forensik & De-anonimisasi (Forensic Investigator):**
+    - Tombol **`🕵️ Audit Forensik`** membuka modal investigasi on-chain canggih.
+    - **Meteran $k$-Anonymity Set:** Menganalisis jumlah setoran sah sebelum Merkle Root diterbitkan. Menampilkan *Anonymity Collapse* jika $k=1$ dan *Safe / Unproven* jika $k > 1$.
+    - **Tersangka Utama & Skor Keyakinan (Prime Suspect Scoring):** Mengevaluasi 5 pilar bukti (Rekonstruksi Merkle, Korelasi Temporal & Denominasi, Graf Rantai Gas, Metadata Jaringan, dan Matriks Ranking Kandidat).
+    - **Ekspor Berkas Bukti Forensik:** Salin ringkasan dossier forensik lengkap dengan ID investigasi untuk keperluan audit kepatuhan atau *CEX Subpoena*.
 
-7. **Mode Audit Forensik & De-anonimisasi (Forensic Investigator):**
-   - Tombol **`🕵️ Audit Forensik`** di navigasi atas dan toolbar membuka antarmuka investigasi on-chain canggih.
-   - **Meteran $k$-Anonymity Set:** Menganalisis jumlah setoran yang sah sebelum Merkle Root diterbitkan. Jika $k=1$, sistem langsung mendeteksi *Anonymity Collapse* secara deterministik.
-   - **Tersangka Utama & Skor Keyakinan (Prime Suspect & Confidence Score):** Mengidentifikasi penyetor asli melalui evaluasi 5 pilar bukti (Rekonstruksi Merkle, Korelasi Temporal & Denominasi, Graf Rantai Gas, Metadata Jaringan, dan Matriks Ranking Kandidat).
-   - **Ekspor Bukti Forensik:** Salin ringkasan berkas bukti forensik lengkap dengan ID investigasi untuk keperluan *CEX Subpoena* atau audit keamanan protokol.
+11. **Mikro-Interaksi Suara (Web Audio API):**
+    - Umpan balik audio sintetis (klak, colokan kabel, success chime, alert buzz) yang dapat diaktifkan/dinonaktifkan (*Mute/Unmute*).
 
 ---
 
-## 📋 6. Parameter Deployment & Alamat Lokal
+## 📋 6. Parameter Deployment & API Bridge Endpoints
 
+### Alamat Kontrak & Akun Lokal:
 | Komponen / Aktor | Alamat / Konfigurasi | Keterangan |
 | :--- | :--- | :--- |
 | **RPC Network** | `http://127.0.0.1:8545` | Hardhat Local EVM (Chain ID: `31337`) |
-| **API Bridge** | `http://127.0.0.1:3001` | Express + SnarkJS Proof Generator |
+| **API Bridge** | `http://127.0.0.1:3001` | Express + SnarkJS Proof Generator + Relayer Keeper |
 | **Frontend Web** | `http://127.0.0.1:5173` | Vite + TypeScript + Vanilla CSS |
-| **Poseidon Hasher** | `0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9` | Smart Contract Library Hash ZK |
+| **Poseidon Hasher** | `0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9` | Smart Contract Library Hash ZK (PoseidonT3) |
 | **Groth16Verifier** | `0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9` | Smart Contract Verifier Snark |
-| **ZKVault (Brankas)** | `0x5FC8d32690cc91D4c39d9d3abcBD16989F875707` | Smart Contract Utama Privacy Pool |
+| **ZKVault (Brankas)** | `0x5FC8d32690cc91D4c39d9d3abcBD16989F875707` | Smart Contract Utama Privacy Pool & Escrow |
 | **Alice (Akun 1)** | `0x70997970C51812dc3A010C7d01b50e0d17dc79C8` | Akun Pengguna Lokal |
 | **Bob (Akun 2)** | `0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC` | Akun Pengguna Lokal |
 | **Charlie (Akun 3)** | `0x90F79bf6EB2c4f870365E785982E1f101E93b906` | Akun Pengguna Lokal |
@@ -151,11 +207,55 @@ Antarmuka demo dirancang dengan estetika modern **Dark Cyberpunk Glassmorphism**
 | **Eve (Akun 5)** | `0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc` | Akun Pengguna Lokal |
 | **Relayer (Kurir)** | `0x14dC79964da2C08b23698B3D3cc7Ca32193d9955` | Kurir Pembayar Gas Pencairan |
 
+### Spesifikasi REST API Endpoints (`api-bridge.ts`):
+| Endpoint | Method | Fungsi Utama |
+| :--- | :--- | :--- |
+| `/api/status` | `GET` | Membaca status blockchain, saldo brankas, root Merkle terkini, dan saldo relayer. |
+| `/api/config` | `POST` | Memperbarui akun penyetor, penerima, dan nilai denominasi brankas. |
+| `/api/config/randomize` | `GET` | Menghasilkan distribusi nominal acak presisi dan jeda detik acak. |
+| `/api/deposit` | `POST` | Mengeksekusi transaksi setoran on-chain dengan komitmen Poseidon. |
+| `/api/prove` | `POST` | Menghasilkan bukti ZK-SNARK Groth16 secara off-chain via SnarkJS. |
+| `/api/withdraw` | `POST` | Memproses pencairan via Relayer (mendukung mode Instant & Stealth Scheduled). |
+| `/api/scheduled-queue` | `GET` | Memantau daftar antrean batch timelock escrow dan status eksekusi tiap slot. |
+| `/api/dispatch-payout` | `POST` | Memicu eksekusi manual slot terjadwal yang telah melewati batas waktu timelock. |
+| `/api/attack/hijack` | `POST` | Mensimulasikan serangan front-running / relayer hijacking penerima dana. |
+| `/api/attack/doublespend` | `POST` | Mensimulasikan serangan pengeluaran ganda dengan bukti ZK yang sama. |
+| `/api/investigate` | `GET / POST` | Menjalankan mesin audit forensik 5-pilar terhadap hash transaksi pencairan. |
+| `/api/withdraw-history` | `GET` | Mengambil seluruh riwayat transaksi pencairan yang pernah dilakukan. |
+| `/api/simulate-aging-traffic` | `POST` | Menyuntikkan transaksi deposit umpan (*decoy traffic*) untuk penuaan pool ($k$-anonymity). |
+
 ---
 
-## 🚀 7. Panduan Menjalankan Proyek Secara Lokal
+## 🧪 7. Pengujian Otomatis (Unit Testing) & Verifikasi
 
-Jika ingin menjalankan kembali seluruh sistem dari awal:
+Seluruh logika sirkuit, smart contract, dan pertahanan kriptografi telah diuji menggunakan Hardhat test suite:
+
+```bash
+cd zk-splitter-demo
+npx hardhat test
+```
+
+### Hasil Pengujian (7 Passing Tests):
+```
+  ZK Private Vault - Stealth Staggered & Randomized Split
+    ✔ Should withdraw with randomized amounts and delayed timelock schedules (545ms)
+    ✔ Should revert if randomized amounts do not sum up to denomination (361ms)
+    ✔ Should prevent double-spending when using withdrawScheduledSplit (373ms)
+
+  ZK Private Vault & 1-to-4 Splitter
+    ✔ Should deposit 1.0 ETH and update on-chain Merkle root correctly (142ms)
+    ✔ Should successfully withdraw and split 1.0 ETH across 4 recipients via Relayer (461ms)
+    ✔ Should prevent double-spending with the same ZK coupon / nullifier (359ms)
+    ✔ Should prevent front-running: Relayer cannot substitute a recipient address (360ms)
+
+  7 passing (3s)
+```
+
+---
+
+## 🚀 8. Panduan Menjalankan Proyek Secara Lokal
+
+Untuk menjalankan seluruh lingkungan sistem dari awal:
 
 ### Langkah 1: Jalankan Local Hardhat EVM Node
 ```bash
@@ -168,7 +268,7 @@ npx hardhat node
 npx hardhat run scripts/deploy-and-simulate.ts --network localhost
 ```
 
-### Langkah 3: Jalankan API Bridge Server
+### Langkah 3: Jalankan API Bridge Server (+ Relayer Keeper Bot)
 ```bash
 npx tsx api-bridge.ts
 ```
@@ -182,4 +282,4 @@ Buka browser pada **`http://127.0.0.1:5173/`**.
 
 ---
 
-*Dokumen ini dibuat otomatis sebagai dokumentasi resmi proyek ZK-Vault Splitter.*
+*Dokumen ini merupakan dokumentasi resmi arsitektur dan status terkini proyek ZK-Vault Splitter.*

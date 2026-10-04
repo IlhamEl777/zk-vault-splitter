@@ -24,7 +24,7 @@ async function main() {
     provider.getSigner(6),
   ]);
 
-  const vault = new ethers.Contract(deployedInfo.vaultAddress, vaultArtifact.abi, deployer);
+  const vault: any = new ethers.Contract(deployedInfo.vaultAddress, vaultArtifact.abi, deployer);
 
   // Set denomination to 1.0 ETH
   const setDenomTx = await vault.setDenomination(ethers.parseEther("1.0"));

@@ -64,8 +64,7 @@ class ZKWorkflowGraph {
   defenseOverlay: HTMLElement;
   defenseStamp: HTMLElement;
   rightPanel: HTMLElement;
-  drawerToggleBtn: HTMLElement;
-  drawerArrow: HTMLElement;
+  savedPanelWidth: string = "440px";
 
   zoomLevel: number = 1.0;
   panX: number = 0;
@@ -103,13 +102,28 @@ class ZKWorkflowGraph {
   vaultAddress: string = "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707";
 
   currentRound: number = 0;
-  selectedScenario: "normal" | "hijack" | "doublespend" = "normal";
+  selectedScenario: "normal" | "stealth" | "hijack" | "doublespend" | "aging" = "normal";
+  splitMode: "equal" | "stealth" = "equal";
+  stealthAmounts: number[] = [0.1850, 0.3120, 0.1430, 0.3600];
+  stealthDelays: number[] = [0, 15, 30, 45];
+  isUserEditingStealth: boolean = false;
   previousNullifiers: string[] = [];
 
   // On-Chain Receipt & Last Tx Tracking
   latestDepositTxHash: string = "";
   latestWithdrawTxHash: string = "";
+  slotTxHashes: Record<number, string> = {};
   toastTimeout: any = null;
+
+  // Real-time Metrics & Inspector State
+  treeLeafCount: number = 0;
+  lastProvingTimeMs: number = 0;
+  lastGasUsed: number = 0;
+  lastBlockNumber: number = 0;
+  lastBatchId: number = 0;
+  activeBatches: any[] = [];
+  currentRootHex: string = "";
+  isTechPropsExpanded: boolean = false;
 
   // Active round secret preimages
   currentSecretHex: string = "0x8f4d...391a";
@@ -239,14 +253,13 @@ class ZKWorkflowGraph {
     this.defenseOverlay = document.getElementById("defense-overlay")!;
     this.defenseStamp = document.getElementById("defense-stamp")!;
     this.rightPanel = document.getElementById("right-panel")!;
-    this.drawerToggleBtn = document.getElementById("drawer-toggle-handle")!;
-    this.drawerArrow = document.getElementById("drawer-handle-arrow")!;
     this.dotGridEl = document.querySelector(".dot-grid") as HTMLElement;
 
     this.initEvents();
     this.initPortEvents();
     this.initDynamicSetupControls();
     this.setupForensicModal();
+    this.setupTechPropsModal();
     this.setupOnChainReceiptAndBanner();
     this.setupResizableRightPanel();
     this.setupPanelSegments();
@@ -297,6 +310,202 @@ class ZKWorkflowGraph {
         }
       });
     }
+    // Split Mode Selector (Equal vs Stealth)
+    document.getElementById("btn-mode-equal")?.addEventListener("click", () => this.setSplitMode("equal"));
+    document.getElementById("btn-mode-stealth")?.addEventListener("click", () => {
+      const drawer = document.getElementById("stealth-config-drawer");
+      if (this.splitMode === "stealth") {
+        const isCurrentlyOpen = drawer && drawer.style.display !== "none";
+        if (drawer) drawer.style.display = isCurrentlyOpen ? "none" : "block";
+        if (isCurrentlyOpen) {
+          this.showToast("⚙️ Pengaturan Stealth disembunyikan untuk memperluas kanvas.");
+        } else {
+          this.showToast("⚙️ Pengaturan Stealth ditampilkan.");
+        }
+        this.updateAllCables();
+        this.drawMinimap();
+      } else {
+        this.setSplitMode("stealth");
+      }
+    });
+
+    // Close stealth drawer button
+    document.getElementById("btn-stealth-close-drawer")?.addEventListener("click", () => {
+      const drawer = document.getElementById("stealth-config-drawer");
+      if (drawer) {
+        drawer.style.display = "none";
+        this.showToast("⚙️ Pengaturan Stealth disembunyikan. Klik tombol Stealth lagi untuk membuka kembali.");
+        this.updateAllCables();
+        this.drawMinimap();
+      }
+    });
+
+    // Escape key to close stealth drawer if open
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        const drawer = document.getElementById("stealth-config-drawer");
+        if (drawer && drawer.style.display !== "none") {
+          drawer.style.display = "none";
+          this.updateAllCables();
+          this.drawMinimap();
+          this.showToast("⚙️ Pengaturan Stealth disembunyikan.");
+        }
+      }
+    });
+
+    // Stealth Actions & Presets
+    document.getElementById("btn-stealth-randomize")?.addEventListener("click", () => this.randomizeStealthSettings());
+    document.getElementById("btn-stealth-preset-fast")?.addEventListener("click", () => this.applyDelayPreset([0, 10, 20, 30]));
+    document.getElementById("btn-stealth-preset-normal")?.addEventListener("click", () => this.applyDelayPreset([0, 25, 50, 80]));
+
+    // Stealth inputs & sliders for 4 recipients
+    for (let i = 0; i < 4; i++) {
+      const slider = document.getElementById(`slider-stealth-delay-${i}`) as HTMLInputElement;
+      const amtInput = document.getElementById(`input-stealth-amt-${i}`) as HTMLInputElement;
+
+      if (slider) {
+        slider.addEventListener("input", () => {
+          this.isUserEditingStealth = true;
+          const val = parseInt(slider.value, 10);
+          this.stealthDelays[i] = val;
+          const valLabel = document.getElementById(`stealth-delay-val-${i}`);
+          if (valLabel) {
+            valLabel.innerText = val === 0 ? "0s (Langsung)" : `+${val}s`;
+          }
+          this.updateDynamicUI();
+        });
+        slider.addEventListener("change", async () => {
+          this.isUserEditingStealth = false;
+          await this.syncConfigToBackend();
+        });
+      }
+
+      if (amtInput) {
+        amtInput.addEventListener("focus", () => {
+          this.isUserEditingStealth = true;
+        });
+        amtInput.addEventListener("change", async () => {
+          this.isUserEditingStealth = false;
+          const parsed = parseFloat(amtInput.value);
+          if (!isNaN(parsed) && parsed > 0) {
+            this.stealthAmounts[i] = parsed;
+            this.recalculateStealthAmounts(i);
+            this.updateStealthInputsUI();
+            this.updateDynamicUI();
+            await this.syncConfigToBackend();
+          }
+        });
+      }
+    }
+  }
+
+  setSplitMode(mode: "equal" | "stealth") {
+    this.splitMode = mode;
+    const btnEqual = document.getElementById("btn-mode-equal");
+    const btnStealth = document.getElementById("btn-mode-stealth");
+    const drawer = document.getElementById("stealth-config-drawer");
+    const summaryLabel = document.getElementById("calc-split-label");
+    const summaryBadge = document.getElementById("calc-split-badge");
+
+    btnEqual?.classList.toggle("active", mode === "equal");
+    btnStealth?.classList.toggle("active", mode === "stealth");
+    if (drawer) drawer.style.display = mode === "stealth" ? "block" : "none";
+
+    if (mode === "stealth") {
+      this.recalculateStealthAmounts();
+      this.updateStealthInputsUI();
+      if (summaryLabel) summaryLabel.innerText = "Strategi:";
+      if (summaryBadge) summaryBadge.innerText = "🎲 4x Acak (100%)";
+      this.log("🛡️ Mode Split diubah ke [Stealth Acak & Terjadwal]. Nominal dipecah acak dan pengiriman diatur bertahap via Timelock Escrow.", "normal");
+    } else {
+      const splitEth = (this.vaultDenomination / 4).toFixed(4);
+      if (summaryLabel) summaryLabel.innerText = "Pecahan / Penerima:";
+      if (summaryBadge) summaryBadge.innerText = `${splitEth} ETH`;
+      this.log("⚡ Mode Split diubah ke [25% Rata Seketika]. Seluruh 4 dompet menerima pecahan identik secara bersamaan.", "normal");
+    }
+
+    this.updateDynamicUI();
+    this.syncConfigToBackend();
+  }
+
+  recalculateStealthAmounts(fixedIndex = -1) {
+    const total = this.vaultDenomination;
+    const sumCurrent = this.stealthAmounts.reduce((a, b) => a + b, 0);
+    if (Math.abs(sumCurrent - total) > 0.0001) {
+      if (fixedIndex >= 0 && fixedIndex < 4) {
+        const remaining = total - this.stealthAmounts[fixedIndex];
+        const otherIndices = [0, 1, 2, 3].filter((idx) => idx !== fixedIndex);
+        const otherSum = otherIndices.reduce((acc, idx) => acc + this.stealthAmounts[idx], 0);
+        if (otherSum > 0 && remaining > 0) {
+          otherIndices.forEach((idx) => {
+            this.stealthAmounts[idx] = parseFloat(((this.stealthAmounts[idx] / otherSum) * remaining).toFixed(4));
+          });
+        }
+      } else {
+        const factor = total / (sumCurrent || 1);
+        this.stealthAmounts = this.stealthAmounts.map((a) => parseFloat((a * factor).toFixed(4)));
+      }
+      let newSum = 0;
+      for (let i = 0; i < 3; i++) newSum += this.stealthAmounts[i];
+      this.stealthAmounts[3] = parseFloat((total - newSum).toFixed(4));
+    }
+  }
+
+  async randomizeStealthSettings() {
+    try {
+      const res = await fetch("/api/config/randomize");
+      const data = await res.json();
+      if (data.success) {
+        this.stealthAmounts = data.stealthAmountsEth.map((a: string) => parseFloat(a));
+        this.stealthDelays = data.stealthDelaysSec;
+        this.updateStealthInputsUI();
+        this.updateDynamicUI();
+        this.log(
+          `🎲 Nominal dan jeda waktu diacak: [${this.stealthAmounts.map((a) => a.toFixed(4) + " ETH").join(", ")}] | Delays: [${this.stealthDelays.map((d) => d + "s").join(", ")}].`,
+          "normal"
+        );
+        await this.syncConfigToBackend();
+      }
+    } catch (err: any) {
+      console.error("Failed to randomize stealth settings:", err);
+    }
+  }
+
+  applyDelayPreset(delays: number[]) {
+    this.stealthDelays = [...delays];
+    this.updateStealthInputsUI();
+    this.updateDynamicUI();
+    this.log(`⏱️ Preset jeda waktu diterapkan: [${this.stealthDelays.map((d) => d + "s").join(", ")}].`, "normal");
+    this.syncConfigToBackend();
+  }
+
+  updateStealthInputsUI() {
+    for (let i = 0; i < 4; i++) {
+      const amtInput = document.getElementById(`input-stealth-amt-${i}`) as HTMLInputElement;
+      const delaySlider = document.getElementById(`slider-stealth-delay-${i}`) as HTMLInputElement;
+      const delayVal = document.getElementById(`stealth-delay-val-${i}`);
+      const shareBadge = document.getElementById(`stealth-share-${i}`);
+      const nameEl = document.getElementById(`stealth-name-${i}`);
+
+      if (this.recipientKeys[i] && ACCOUNTS_DATA[this.recipientKeys[i]]) {
+        if (nameEl) nameEl.innerText = ACCOUNTS_DATA[this.recipientKeys[i]].name;
+      }
+
+      if (amtInput && this.stealthAmounts[i] !== undefined) {
+        amtInput.value = this.stealthAmounts[i].toFixed(4);
+      }
+      if (shareBadge && this.vaultDenomination > 0 && this.stealthAmounts[i] !== undefined) {
+        const pct = ((this.stealthAmounts[i] / this.vaultDenomination) * 100).toFixed(1);
+        shareBadge.innerText = `${pct}%`;
+      }
+      if (delaySlider && this.stealthDelays[i] !== undefined) {
+        delaySlider.value = this.stealthDelays[i].toString();
+      }
+      if (delayVal && this.stealthDelays[i] !== undefined) {
+        const d = this.stealthDelays[i];
+        delayVal.innerText = d === 0 ? "0s (Langsung)" : `+${d}s`;
+      }
+    }
   }
 
   async setDepositor(key: string) {
@@ -310,6 +519,7 @@ class ZKWorkflowGraph {
       "normal"
     );
 
+    this.updateStealthInputsUI();
     this.updateDynamicUI();
     await this.syncConfigToBackend();
   }
@@ -318,9 +528,12 @@ class ZKWorkflowGraph {
     if (eth < 0.04) eth = 0.04;
     this.vaultDenomination = eth;
 
+    this.recalculateStealthAmounts();
+    this.updateStealthInputsUI();
+
     const splitEth = (eth / 4).toFixed(4);
     this.log(
-      `💰 Setoran brankas diubah menjadi [${eth.toFixed(2)} ETH]. Masing-masing penerima akan menerima [${splitEth} ETH].`,
+      `💰 Setoran brankas diubah menjadi [${eth.toFixed(2)} ETH]. Masing-masing penerima rata: [${splitEth} ETH].`,
       "normal"
     );
 
@@ -337,6 +550,9 @@ class ZKWorkflowGraph {
           depositor: this.depositorKey,
           recipients: this.recipientKeys,
           denominationEth: this.vaultDenomination.toFixed(2),
+          splitMode: this.splitMode,
+          stealthAmountsEth: this.stealthAmounts.map((a) => a.toFixed(4)),
+          stealthDelaysSec: this.stealthDelays,
         }),
       });
       const data = await res.json();
@@ -422,39 +638,93 @@ class ZKWorkflowGraph {
     }
 
     // 4. Node 4 (Relayer)
+    const isStealth = this.splitMode === "stealth";
     const portRelayerLabel = document.getElementById("port-relayer-label");
     if (portRelayerLabel) {
-      portRelayerLabel.innerText = `Pencairan Terbagi (4x ${splitEth} ETH)`;
+      portRelayerLabel.innerText = isStealth ? `Pencairan Acak & Terjadwal (4 Slot)` : `Pencairan Terbagi (4x ${splitEth} ETH)`;
+    }
+
+    const valRelayerMode = document.getElementById("val-relayer-mode");
+    if (valRelayerMode) {
+      valRelayerMode.innerText = isStealth ? "🎲⏱️ Stealth Timelock Escrow" : "⚡ 25% Rata Seketika";
+    }
+
+    const valRelayerFn = document.getElementById("val-relayer-fn");
+    if (valRelayerFn) {
+      valRelayerFn.innerText = isStealth ? "withdrawScheduledSplit(...)" : "withdrawSplit(...)";
     }
 
     // 5. Node 5 (Recipients Grid)
     const recipientsGrid = document.getElementById("recipients-grid");
-    if (recipientsGrid) {
+    if (recipientsGrid && !this.isRunning) {
       recipientsGrid.innerHTML = this.recipientKeys
         .map((k, idx) => {
           const acc = ACCOUNTS_DATA[k];
           const bal = (this.accountBalances[k] || 10000.0).toFixed(4);
+          const targetEth = isStealth ? (this.stealthAmounts[idx] || 0.25).toFixed(4) : splitEth;
+          const delaySec = isStealth ? (this.stealthDelays[idx] || 0) : 0;
+          const currentTx = this.slotTxHashes[idx] || (this.splitMode === "equal" ? this.latestWithdrawTxHash : "");
+
+          let txRowHtml = "";
+          if (currentTx) {
+            const shortTx = `${currentTx.slice(0, 6)}...${currentTx.slice(-4)}`;
+            txRowHtml = `
+              <div class="rec-tx-row" id="rec-tx-row-${idx}">
+                <div class="rec-tx-link-wrap">
+                  <span class="rec-tx-code" title="${currentTx}">🔗 ${shortTx}</span>
+                  <button type="button" class="btn-copy-tx-mini" data-tx="${currentTx}" title="Salin Full Tx Hash">📋</button>
+                  <button type="button" class="btn-audit-tx-mini" data-tx="${currentTx}" title="Audit Tx Ini di Mode Forensik">🕵️</button>
+                </div>
+              </div>
+            `;
+          } else {
+            const defaultStatus = isStealth
+              ? (delaySec === 0 ? "⚡ Siap Cair (Batch Tx)" : `⏳ Antrean (+${delaySec}s)`)
+              : "⚡ Siaga (25% Seketika)";
+            txRowHtml = `
+              <div class="rec-tx-row" id="rec-tx-row-${idx}">
+                <span class="rec-tx-pill ${isStealth ? 'pending' : 'idle'}" id="rec-tx-pill-${idx}">
+                  ${defaultStatus}
+                </span>
+              </div>
+            `;
+          }
+
           return `
             <div class="recipient-item" id="rec-item-${idx}" data-rec-index="${idx}">
-              <div class="rec-name" id="rec-name-${idx}">${acc.name}</div>
+              <div class="rec-head-row">
+                <div class="rec-name" id="rec-name-${idx}">${acc.name}</div>
+                ${isStealth ? `<span class="rec-timer-pill" id="rec-timer-${idx}">${delaySec === 0 ? "⚡ Segera" : `⏳ +${delaySec}s`}</span>` : ""}
+              </div>
               <div class="rec-address" id="rec-addr-${idx}">${acc.shortAddr}</div>
               <div class="rec-balance" id="rec-bal-${idx}">${bal} ETH</div>
-              <div class="rec-target-badge" id="rec-target-${idx}">+${splitEth} ETH</div>
+              <div class="rec-target-badge" id="rec-target-${idx}">+${targetEth} ETH</div>
+              ${isStealth ? `
+                <div class="rec-progress-track" id="rec-track-${idx}">
+                  <div class="rec-progress-bar" id="rec-prog-${idx}" style="width: ${delaySec === 0 ? "100%" : "0%"};"></div>
+                </div>
+              ` : ""}
+              ${txRowHtml}
             </div>
           `;
         })
         .join("");
+
+      this.attachTxMiniButtonListeners();
     }
 
     // 6. Update Inspector Database
     this.refreshInspectorDatabase();
     if (this.selectedNodeId) {
-      this.selectNode(this.selectedNodeId);
+      this.renderInspectorCardOnly(this.selectedNodeId);
     }
+
+    // 7. Update canvas cable positions
+    this.updateAllCables();
   }
 
   refreshInspectorDatabase() {
-    const dep = ACCOUNTS_DATA[this.depositorKey];
+    const dep = ACCOUNTS_DATA[this.depositorKey] || ACCOUNTS_DATA.alice;
     const splitEth = (this.vaultDenomination / 4).toFixed(4);
 
     this.nodeDatabase.alice = {
@@ -466,29 +736,120 @@ class ZKWorkflowGraph {
         "Nama Penyetor": dep.name,
         "Alamat Dompet": dep.address,
         "Saldo Terkini": `${(this.accountBalances[this.depositorKey] || 10000.0).toFixed(4)} ETH`,
+        "Status Penyetor": this.isRunning ? "Sedang Memproses Deposit" : "Siap / Aktif",
+        "Ukuran Setoran": `${this.vaultDenomination.toFixed(2)} ETH per putaran`,
+        "Deposit Tx Terakhir": this.latestDepositTxHash
+          ? `${this.latestDepositTxHash.slice(0, 10)}...${this.latestDepositTxHash.slice(-8)}`
+          : "Belum ada deposit",
         "Private Secret": this.currentSecretHex,
         "Private Nullifier": this.currentNullifierHex,
         "Commitment Hash": this.currentCommitmentHex,
-        "Ukuran Setoran": `${this.vaultDenomination.toFixed(2)} ETH per putaran`,
       },
     };
 
-    this.nodeDatabase.vault.fields["Alamat Kontrak"] = this.vaultAddress;
-    this.nodeDatabase.vault.fields["Saldo Brankas"] = `${this.vaultBalance.toFixed(4)} ETH`;
-    this.nodeDatabase.vault.fields["Ukuran Denominasi"] = `${this.vaultDenomination.toFixed(2)} ETH (Dinamis)`;
+    const vaultRootShort = this.currentRootHex
+      ? `${this.currentRootHex.slice(0, 10)}...${this.currentRootHex.slice(-8)}`
+      : "0x0000...0000";
 
-    this.nodeDatabase.prover.fields["Binding 4 Penerima"] = this.recipientKeys.map((k) => ACCOUNTS_DATA[k].name).join(", ");
+    this.nodeDatabase.vault = {
+      id: "vault",
+      name: "2. ZKVault (Brankas Digital On-Chain)",
+      type: "Smart Contract (EVM)",
+      description:
+        "Smart contract brankas yang menyimpan dana setoran dan mengelola pohon Merkle inkremental berkedalaman 8 tingkat (kapasitas 256 deposit). Hanya komitmen hash yang disimpan di on-chain.",
+      fields: {
+        "Alamat Kontrak": this.vaultAddress,
+        "Saldo Brankas": `${this.vaultBalance.toFixed(4)} ETH`,
+        "Ukuran Denominasi": `${this.vaultDenomination.toFixed(2)} ETH (Dinamis)`,
+        "Merkle Root Aktif": vaultRootShort,
+        "Pohon Merkle": "Depth 8 (Kapasitas 256)",
+        "Daun Terisi": `${this.treeLeafCount} / 256 Daun`,
+        "Antrean Batch Timelock": `${this.activeBatches.length} batch aktif`,
+        "Merkle Hasher": "Poseidon (2 inputs) Bytecode",
+        "Pencatatan Nullifier": "Mapping(nullifierHash => bool)",
+      },
+    };
+
+    const proverProofStatus = this.lastProvingTimeMs > 0 ? "✅ Bukti Valid (Groth16)" : "Siap Dihitung";
+    const proverTimeLabel = this.lastProvingTimeMs > 0 ? `${this.lastProvingTimeMs} ms (Groth16)` : "Belum dihitung";
+
+    this.nodeDatabase.prover = {
+      id: "prover",
+      name: "3. ZK-Circuit (Groth16 Prover)",
+      type: "Zero-Knowledge Circuit",
+      description:
+        "Sirkuit matematika circom yang membuktikan penyetor mengetahui preimage yang terdaftar di Merkle Tree brankas tanpa mengungkapkannya, serta mengunci 4 alamat penerima ke dalam bukti matematis.",
+      fields: {
+        "File Sirkuit": "circuits/splitter.circom",
+        "Sistem Pembuktian": "Groth16 (BN254 curve)",
+        "Status Pembuktian": proverProofStatus,
+        "Waktu Hitung Proof": proverTimeLabel,
+        "Binding 4 Penerima": this.recipientKeys.map((k) => ACCOUNTS_DATA[k].name).join(", "),
+        "Nullifier Hash": this.currentNullifierHashHex || "-",
+        "Public Signals": "[root, nullifierHash, r0, r1, r2, r3]",
+        "Jumlah Constraints": "2,423 R1CS",
+        "Proteksi": "Front-running Resistant (Tied to 4 addresses)",
+      },
+    };
+
+    const relayerTxShort = this.latestWithdrawTxHash
+      ? `${this.latestWithdrawTxHash.slice(0, 10)}...${this.latestWithdrawTxHash.slice(-8)}`
+      : "Belum ada transaksi";
+    const relayerStatus = this.latestWithdrawTxHash ? "✅ Transaksi Sukses" : "Siaga";
+    const relayerMethod = this.splitMode === "stealth" ? "ZKVault.withdrawScheduledSplit" : "ZKVault.withdrawSplit";
+
+    this.nodeDatabase.relayer = {
+      id: "relayer",
+      name: "4. Relayer (Kurir Pengantar)",
+      type: "Independent Courier",
+      description:
+        "Pihak ketiga atau server kurir yang bertugas mengeksekusi transaksi penarikan di smart contract. Kurir hanya menerima kupon ZK yang sudah jadi dan tidak mengetahui siapa penyetor aslinya.",
+      fields: {
+        "Alamat Kurir": "0x976EA74026E726554dB657fA54763abd0C3a0aa9",
+        "Saldo Relayer": `${this.relayerBalance.toFixed(4)} ETH`,
+        "Status Kurir": relayerStatus,
+        "Tx Hash Terakhir": relayerTxShort,
+        "Gas Terpakai": this.lastGasUsed > 0 ? `${this.lastGasUsed.toLocaleString()} gas` : "-",
+        "Batch ID Terakhir": this.lastBatchId > 0 ? `#${this.lastBatchId}` : "-",
+        "Mode Split Terpilih": this.splitMode === "stealth" ? "Stealth Timelock (Acak)" : "Equal (25% Rata)",
+        "Method Panggilan": relayerMethod,
+        "Gas Payer": "Relayer (Kurir)",
+        "Hubungan ke Penyetor": "NOL (0% Hubungan On-Chain)",
+      },
+    };
 
     const recipientFields: Record<string, string> = {};
-    this.recipientKeys.forEach((k, idx) => {
-      const acc = ACCOUNTS_DATA[k];
-      const bal = (this.accountBalances[k] || 10000.0).toFixed(4);
-      recipientFields[`Penerima ${idx + 1} (${acc.name})`] = `${acc.shortAddr} (${bal} ETH)`;
-    });
-    recipientFields["Total Diterima"] = `${this.vaultDenomination.toFixed(4)} ETH (${splitEth} ETH x 4)`;
-    recipientFields["Sumber Pengirim"] = "ZKVault (Bukan Penyetor)";
+    if (this.splitMode === "stealth") {
+      this.recipientKeys.forEach((k, idx) => {
+        const acc = ACCOUNTS_DATA[k];
+        const bal = (this.accountBalances[k] || 10000.0).toFixed(4);
+        const amt = this.stealthAmounts[idx] !== undefined ? this.stealthAmounts[idx].toFixed(4) : "0.0000";
+        const delay = this.stealthDelays[idx] !== undefined ? this.stealthDelays[idx] : 0;
+        const timing = delay === 0 ? "Seketika (Slot #0)" : `+${delay}s (Timelock)`;
+        recipientFields[`Penerima ${idx + 1} (${acc.name})`] = `${acc.shortAddr} [Saldo: ${bal} ETH] | Nominal: ${amt} ETH (${timing})`;
+      });
+      recipientFields["Total Diterima"] = `${this.vaultDenomination.toFixed(4)} ETH (100% Acak)`;
+      recipientFields["Strategi Distribusi"] = "De-korelasi Temporal (Timelock Escrow Bertahap)";
+      recipientFields["Sumber Pengirim"] = "ZKVault (Bukan Penyetor)";
+    } else {
+      this.recipientKeys.forEach((k, idx) => {
+        const acc = ACCOUNTS_DATA[k];
+        const bal = (this.accountBalances[k] || 10000.0).toFixed(4);
+        recipientFields[`Penerima ${idx + 1} (${acc.name})`] = `${acc.shortAddr} [Saldo: ${bal} ETH] | Nominal: +${splitEth} ETH`;
+      });
+      recipientFields["Total Diterima"] = `${this.vaultDenomination.toFixed(4)} ETH (${splitEth} ETH x 4)`;
+      recipientFields["Strategi Distribusi"] = "Seketika Bersamaan (4x Identik)";
+      recipientFields["Sumber Pengirim"] = "ZKVault (Bukan Penyetor)";
+    }
 
-    this.nodeDatabase.recipients.fields = recipientFields;
+    this.nodeDatabase.recipients = {
+      id: "recipients",
+      name: "5. Empat Dompet Penerima (Split)",
+      type: "Payout Accounts",
+      description:
+        "Keempat dompet penerima yang menerima dana dari brankas ZKVault. Mereka dan seluruh publik tidak bisa melacak siapa penyetor dana tersebut.",
+      fields: recipientFields,
+    };
   }
 
   async fetchBlockchainStatus() {
@@ -521,8 +882,17 @@ class ZKWorkflowGraph {
         }
 
         if (data.currentRoot) {
+          this.currentRootHex = data.currentRoot;
           const valRoot = document.getElementById("val-merkle-root");
           if (valRoot) valRoot.innerText = `${data.currentRoot.slice(0, 8)}...`;
+        }
+
+        if (typeof data.treeLeafCount === "number") {
+          this.treeLeafCount = data.treeLeafCount;
+        }
+
+        if (Array.isArray(data.activeBatches)) {
+          this.activeBatches = data.activeBatches;
         }
 
         const valVaultTree = document.getElementById("val-vault-tree");
@@ -772,20 +1142,40 @@ class ZKWorkflowGraph {
       }
     });
 
-    // 5. Drawer Toggle Handle
-    const toggleDrawer = () => {
-      this.rightPanel.classList.toggle("collapsed");
-      const isCollapsed = this.rightPanel.classList.contains("collapsed");
-      this.drawerArrow.innerText = isCollapsed ? "‹" : "›";
+    // 5. Drawer Toggle Handle (Minimize / Expand Panel)
+    const toggleDrawer = (forceState?: boolean) => {
+      const isCurrentlyCollapsed = this.rightPanel.classList.contains("collapsed");
+      const shouldCollapse = forceState !== undefined ? forceState : !isCurrentlyCollapsed;
+
+      const btnToggleNavbar = document.getElementById("btn-toggle-panel");
+      const dockReopenBtn = document.getElementById("btn-dock-reopen");
+
+      if (shouldCollapse) {
+        this.savedPanelWidth = this.rightPanel.style.width || "440px";
+        this.rightPanel.style.width = "0px";
+        this.rightPanel.classList.add("collapsed");
+        document.body.classList.add("panel-is-collapsed");
+        btnToggleNavbar?.classList.remove("active");
+        if (dockReopenBtn) dockReopenBtn.style.display = "inline-flex";
+        this.showToast("Panel ZK Agent dilipat. Klik tombol 'ZK Agent' untuk membuka kembali.");
+      } else {
+        this.rightPanel.classList.remove("collapsed");
+        document.body.classList.remove("panel-is-collapsed");
+        this.rightPanel.style.width = this.savedPanelWidth || "440px";
+        btnToggleNavbar?.classList.add("active");
+        if (dockReopenBtn) dockReopenBtn.style.display = "none";
+        this.showToast("Panel ZK Agent dibuka.");
+      }
+
       setTimeout(() => {
         this.updateAllCables();
         this.drawMinimap();
-      }, 300);
+      }, 250);
     };
 
-    this.drawerToggleBtn?.addEventListener("click", toggleDrawer);
-    document.getElementById("btn-close-panel")?.addEventListener("click", toggleDrawer);
-    document.getElementById("btn-toggle-panel")?.addEventListener("click", toggleDrawer);
+    document.getElementById("btn-close-panel")?.addEventListener("click", () => toggleDrawer());
+    document.getElementById("btn-dock-reopen")?.addEventListener("click", () => toggleDrawer(false));
+    document.getElementById("btn-toggle-panel")?.addEventListener("click", () => toggleDrawer());
 
     // 6. Scenario Selection in Right Panel
     const actionBtns = document.querySelectorAll(".action-card-btn");
@@ -799,7 +1189,7 @@ class ZKWorkflowGraph {
       const isHidden = quickActionsExpandable.hidden;
       quickActionsExpandable.hidden = !isHidden;
       if (scenarioExpandIcon) scenarioExpandIcon.textContent = isHidden ? "▴" : "▾";
-      if (scenarioExpandLabel) scenarioExpandLabel.textContent = isHidden ? "Sembunyikan Pilihan Skenario" : "Ganti Skenario Eksperimen (3 Opsi)";
+      if (scenarioExpandLabel) scenarioExpandLabel.textContent = isHidden ? "Sembunyikan Pilihan Skenario" : "Ganti Skenario Eksperimen (5 Opsi)";
       btnToggleScenarios.classList.toggle("active", Boolean(isHidden));
     });
 
@@ -808,13 +1198,13 @@ class ZKWorkflowGraph {
         actionBtns.forEach((b) => b.classList.remove("active-action"));
         btn.classList.add("active-action");
 
-        const scenario = btn.getAttribute("data-scenario") as "normal" | "hijack" | "doublespend";
+        const scenario = btn.getAttribute("data-scenario") as "normal" | "stealth" | "hijack" | "doublespend" | "aging";
         this.setScenario(scenario);
 
         // Ciutkan kembali pilihan setelah skenario dipilih agar tetap bersih
         if (quickActionsExpandable) quickActionsExpandable.hidden = true;
         if (scenarioExpandIcon) scenarioExpandIcon.textContent = "▾";
-        if (scenarioExpandLabel) scenarioExpandLabel.textContent = "Ganti Skenario Eksperimen (3 Opsi)";
+        if (scenarioExpandLabel) scenarioExpandLabel.textContent = "Ganti Skenario Eksperimen (5 Opsi)";
         btnToggleScenarios?.classList.remove("active");
       });
     });
@@ -856,6 +1246,91 @@ class ZKWorkflowGraph {
   }
 
   // ==========================================================================
+  // CRYPTOGRAPHIC & CIRCUIT TECH PROPS MODAL (SPACIOUS POPUP)
+  // ==========================================================================
+  setupTechPropsModal() {
+    const techBackdrop = document.getElementById("modal-tech-props-backdrop");
+    const closeTechModal = () => {
+      this.closeTechPropsModal();
+    };
+
+    document.getElementById("btn-close-tech-modal")?.addEventListener("click", closeTechModal);
+    document.getElementById("btn-done-tech-modal")?.addEventListener("click", closeTechModal);
+
+    techBackdrop?.addEventListener("click", (e) => {
+      if (e.target === techBackdrop) closeTechModal();
+    });
+
+    window.addEventListener("keydown", (e: KeyboardEvent) => {
+      if (e.key === "Escape" && techBackdrop?.classList.contains("open")) {
+        closeTechModal();
+      }
+    });
+  }
+
+  updateTechPropsModalContent(nodeId: string) {
+    const data = this.nodeDatabase[nodeId];
+    if (!data) return;
+
+    const titleEl = document.getElementById("tech-modal-title");
+    const subtitleEl = document.getElementById("tech-modal-subtitle");
+    const bodyEl = document.getElementById("tech-modal-body");
+
+    if (titleEl) {
+      titleEl.innerText = `Parameter Kriptografi & Sirkuit: ${data.name}`;
+    }
+    if (subtitleEl) {
+      subtitleEl.innerText = `${data.type} — Inspeksi 254-bit Preimage & Verifikasi Sirkuit Groth16 SnarkJS`;
+    }
+
+    if (bodyEl) {
+      const allEntries = Object.entries(data.fields);
+      let techRows = "";
+      for (const [key, val] of allEntries) {
+        techRows += `
+          <tr>
+            <td class="prop-key">${key}</td>
+            <td class="prop-val">${val}</td>
+          </tr>
+        `;
+      }
+
+      bodyEl.innerHTML = `
+        <div class="tech-modal-table-wrap">
+          <table class="tech-modal-table">
+            <thead>
+              <tr style="background: #f1f5f9; border-bottom: 2px solid var(--border-color); text-align: left;">
+                <th style="padding: 10px 16px; font-weight: 800; font-size: 12px; color: #475569; width: 34%;">PARAMETER KRIPTOGRAFI</th>
+                <th style="padding: 10px 16px; font-weight: 800; font-size: 12px; color: #475569;">NILAI / PREIMAGE / BUKTI ON-CHAIN</th>
+              </tr>
+            </thead>
+            <tbody>${techRows}</tbody>
+          </table>
+        </div>
+        <div class="tech-modal-desc-box">
+          <span class="desc-icon">ℹ️</span>
+          <div class="desc-text">
+            <strong>Deskripsi &amp; Mekanisme Teknis:</strong><br/>
+            ${data.description}
+          </div>
+        </div>
+      `;
+    }
+  }
+
+  openTechPropsModal(nodeId?: string) {
+    const targetId = nodeId || this.selectedNodeId || "alice";
+    this.updateTechPropsModalContent(targetId);
+    const modalBackdrop = document.getElementById("modal-tech-props-backdrop");
+    modalBackdrop?.classList.add("open");
+  }
+
+  closeTechPropsModal() {
+    const modalBackdrop = document.getElementById("modal-tech-props-backdrop");
+    modalBackdrop?.classList.remove("open");
+  }
+
+  // ==========================================================================
   // FORENSIC INVESTIGATOR AUDIT LOGIC (DE-ANONYMIZATION)
   // ==========================================================================
   lastForensicReport: any = null;
@@ -885,7 +1360,7 @@ class ZKWorkflowGraph {
       this.runForensicScan(input?.value.trim());
     });
 
-    document.getElementById("btn-export-report")?.addEventListener("click", () => this.copyForensicReport());
+    document.getElementById("btn-export-report")?.addEventListener("click", () => this.exportForensicReportFile());
 
     forensicBackdrop?.addEventListener("click", (e) => {
       if (e.target === forensicBackdrop) closeForensicModal();
@@ -1070,6 +1545,11 @@ class ZKWorkflowGraph {
       paneInspectorReceipt.hidden = isScenario;
       paneInspectorReceipt.classList.toggle("active", !isScenario);
     }
+
+    if (!isScenario) {
+      this.refreshInspectorDatabase();
+      this.renderInspectorCardOnly(this.selectedNodeId || "alice");
+    }
   }
 
   setupPanelTabs() {
@@ -1251,6 +1731,19 @@ class ZKWorkflowGraph {
       if (suspectSummary) {
         suspectSummary.textContent = report.primeSuspect.findings[0] || report.executiveSummary;
       }
+    } else {
+      if (suspectAddr) suspectAddr.textContent = "🛡️ Nihil / Tidak Ada Tersangka";
+      if (suspectConf) {
+        suspectConf.textContent = "🟢 PRIVASI AMAN (ANONIM)";
+        suspectConf.className = "confidence-badge-pill badge-safe";
+      }
+      if (suspectProgress) {
+        suspectProgress.style.width = "0%";
+        suspectProgress.className = "f-progress-bar bg-green";
+      }
+      if (suspectSummary) {
+        suspectSummary.textContent = report.executiveSummary || "Setoran telah mengendap (Deposit Aging) dan terlindung di dalam kerumunan penyetor. Heuristik forensik gagal menemukan tersangka utama.";
+      }
     }
 
     // 4. Payout Details
@@ -1295,14 +1788,109 @@ class ZKWorkflowGraph {
     }
   }
 
-  copyForensicReport() {
+  generateFullForensicMarkdown(r: any): string {
+    const cands: any[] = r.candidates || [];
+    const ps = r.primeSuspect;
+    const k = r.anonymitySetSize;
+    const verdict = ps ? `${ps.confidence} (${ps.score}%)` : "NIHIL — PRIVASI AMAN";
+    const recips: string[] = r.recipients || [];
+    const kInterp =
+      k <= 1
+        ? "> ⚠️ **ANONYMITY COLLAPSE:** Hanya 1 setoran valid sebelum root ini diterbitkan. Penarik pasti berasal dari setoran tunggal tersebut."
+        : k < 10
+        ? `> ⚠️ **Anonymity set kecil (k=${k}):** Probabilitas tebakan acak ${(100 / k).toFixed(1)}%. Perlindungan kerumunan lemah.`
+        : `> ✅ **Perlindungan kerumunan memadai (k=${k}):** Probabilitas tebakan acak hanya ${(100 / k).toFixed(1)}% per kandidat.`;
+    const table = cands.length
+      ? cands
+          .map((c, i) => `| ${i + 1} | \`${c.depositorAddress}\` | #${c.depositBlock} | \`${c.depositTxHash}\` | ${c.depositAmountEth} ETH | ${c.timeDeltaMinutes} mnt | **${c.score}%** | **${c.confidence}** |`)
+          .join("\n")
+      : "| - | Tidak ada kandidat | - | - | - | - | - | - |";
+    const findings = cands
+      .map((c, i) => `#### Kandidat #${i + 1}: \`${c.depositorAddress}\` (Skor: ${c.score}% — ${c.confidence})\n- **Tx Setoran:** \`${c.depositTxHash}\`\n- **Commitment:** \`${c.commitmentHex || "-"}\`\n- **Temuan:**\n${(c.findings || []).map((f: string) => `  - ${f}`).join("\n")}`)
+      .join("\n\n");
+    const legal = ps
+      ? `1. **Permohonan Data KYC ke CEX:** Ajukan subpoena ke bursa kripto tempat penyetor \`${ps.depositorAddress}\` mendanai dompetnya (*source of funds*).\n2. **Pemantauan Dompet Penerima:** Pasang alert on-chain pada ${recips.length} dompet penerima untuk mendeteksi *sweeping* ke alamat konsolidasi.\n3. **Bukti Tambahan:** Kumpulkan metadata relayer/ISP untuk meningkatkan keyakinan.`
+      : `1. **Tidak ada dasar subpoena:** Skor tertinggi di bawah ambang 45%, identitas penyetor tidak dapat dibuktikan secara statistik.\n2. **Pemantauan Lanjutan:** Pantau dompet penerima dan tunggu data tambahan (mis. funder gas bersama atau pola waktu).\n3. **Catatan:** Hasil ini TIDAK membuktikan siapa pun tidak bersalah; hanya menyatakan bukti on-chain tidak cukup.`;
+    return `# 🛡️ LAPORAN AUDIT FORENSIK DIGITAL BLOCKCHAIN
+
+**Nomor Berkas:** CASE #${r.investigationId}
+**Waktu Audit:** ${r.timestamp}
+**Target Tx Pencairan:** \`${r.withdrawTxHash}\`
+**Blok Pencairan:** #${r.withdrawBlock}
+**Vonis Forensik:** ${verdict}
+
+---
+
+## 1. Ringkasan Eksekutif
+${r.executiveSummary}
+
+---
+
+## 2. Parameter On-Chain Transaksi Pencairan
+- **Brankas (ZKVault):** \`${r.vaultAddress}\`
+- **Kurir (Relayer):** \`${r.relayerAddress}\`
+- **Total Dana Keluar:** ${r.totalWithdrawnEth} ETH
+- **Rata-rata per Penerima:** ${r.amountPerRecipientEth} ETH
+- **Merkle Root Publik:** \`${r.merkleRootHex}\`
+- **Nullifier Hash Terpakai:** \`${r.nullifierHashHex}\`
+- **Dompet Penerima (${recips.length}):**
+${recips.map((a, i) => `  ${i + 1}. \`${a}\``).join("\n")}
+
+---
+
+## 3. Analisis Anonymity Set (k-anonymity)
+- **Ukuran Anonymity Set (k):** **${k}**
+- **Probabilitas tebakan acak:** ${k > 0 ? (100 / k).toFixed(2) : "100"}%
+
+${kInterp}
+
+---
+
+## 4. Matriks Kandidat Penyetor
+| No | Alamat Penyetor | Blok | Tx Setoran | Nominal | Jeda Waktu | Skor | Status |
+|:---|:---|:---|:---|:---|:---|:---|:---|
+${table}
+
+---
+
+## 5. Temuan Forensik per Kandidat
+${findings || "_Tidak ada kandidat._"}
+
+---
+
+## 6. Integritas Bukti Zero-Knowledge
+- Penarikan diverifikasi kontrak lewat bukti ZK-SNARK (Groth16) terhadap Merkle Root di atas.
+- Nullifier hash \`${r.nullifierHashHex}\` sudah tercatat sehingga setoran yang sama tidak dapat ditarik dua kali.
+- Bukti ZK tidak membocorkan commitment mana yang dibelanjakan; atribusi di atas bersifat statistik dari metadata on-chain.
+
+---
+
+## 7. Rekomendasi Tindak Lanjut Hukum & Forensik
+${legal}
+
+---
+*Laporan dihasilkan otomatis oleh Mesin Audit Forensik ZK-Vault Splitter.*
+`;
+  }
+
+  exportForensicReportFile() {
     if (!this.lastForensicReport) {
       this.showToast("Belum ada laporan audit yang dipindai.");
       return;
     }
     const r = this.lastForensicReport;
-    const text = `=== LAPORAN BUKTI FORENSIK BLOCKCHAIN ===\nID: ${r.investigationId}\nTarget Tx: ${r.withdrawTxHash}\nAnonymity Set: k=${r.anonymitySetSize}\nTersangka Utama: ${r.primeSuspect ? r.primeSuspect.depositorAddress : "N/A"} (Keyakinan: ${r.primeSuspect ? r.primeSuspect.score : 0}%)\nRingkasan: ${r.executiveSummary}`;
-    this.copyToClipboard(text, "✅ Ringkasan bukti forensik berhasil disalin ke clipboard!");
+    const md = this.generateFullForensicMarkdown(r);
+    const filename = `LAPORAN-AUDIT-FORENSIK-${r.investigationId}.md`;
+    const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    this.showToast(`💾 Berkas laporan forensik diunduh: ${filename}`);
   }
 
   // ==========================================================================
@@ -1437,11 +2025,24 @@ class ZKWorkflowGraph {
   }
 
   displayOnChainReceipt(withdrawData: any) {
-    // 1. Update Receipt Card in Drawer
+    const isStealth = withdrawData.splitMode === "stealth";
     const statusBadge = document.getElementById("receipt-status-badge");
+    const withdrawLabel = document.getElementById("receipt-withdraw-label");
+    const stealthSlotsReceipt = document.getElementById("stealth-slots-receipt");
+
+    // 1. Update Receipt Card in Drawer
     if (statusBadge) {
-      statusBadge.textContent = "CONFIRMED";
-      statusBadge.className = "receipt-badge badge-confirmed";
+      if (isStealth) {
+        statusBadge.textContent = "⏳ ESCROW ACTIVE (1/4)";
+        statusBadge.className = "receipt-badge badge-pending";
+      } else {
+        statusBadge.textContent = "CONFIRMED";
+        statusBadge.className = "receipt-badge badge-confirmed";
+      }
+    }
+
+    if (withdrawLabel) {
+      withdrawLabel.textContent = isStealth ? "Tx Pendaftaran Batch & Slot 1:" : "Pencairan (Withdraw Tx):";
     }
 
     const depEl = document.getElementById("receipt-deposit-tx");
@@ -1466,15 +2067,35 @@ class ZKWorkflowGraph {
       amountTag.textContent = `Nilai: ${this.vaultDenomination.toFixed(2)} ETH`;
     }
 
+    if (stealthSlotsReceipt) {
+      if (isStealth) {
+        stealthSlotsReceipt.hidden = false;
+        this.renderStealthSlotsReceipt(withdrawData);
+      } else {
+        stealthSlotsReceipt.hidden = true;
+      }
+    }
+
     // 2. Update Floating Banner
     const banner = document.getElementById("floating-tx-banner");
     const bannerTitle = document.getElementById("banner-title");
     const bannerDep = document.getElementById("banner-deposit-tx");
     const bannerWith = document.getElementById("banner-withdraw-tx");
+    const bannerBadge = document.querySelector("#floating-tx-banner .banner-badge span:last-child");
 
     if (bannerTitle) {
-      bannerTitle.textContent = `Putaran #${this.currentRound} Berhasil Dicairkan ke 4 Penerima!`;
+      if (isStealth) {
+        bannerTitle.textContent = `Putaran #${this.currentRound}: Slot #1 Berhasil Cair! Slot #2-#4 Masuk Antrean On-Chain...`;
+      } else {
+        bannerTitle.textContent = `Putaran #${this.currentRound} Berhasil Dicairkan ke 4 Penerima!`;
+      }
     }
+    if (bannerBadge) {
+      bannerBadge.textContent = isStealth
+        ? "⏳ TIMELOCK ESCROW BERJALAN (1/4 Selesai)"
+        : "TRANSAKSI ON-CHAIN TERKONFIRMASI";
+    }
+
     if (bannerDep && this.latestDepositTxHash) {
       bannerDep.textContent = `${this.latestDepositTxHash.slice(0, 16)}...${this.latestDepositTxHash.slice(-8)}`;
       bannerDep.title = this.latestDepositTxHash;
@@ -1493,24 +2114,101 @@ class ZKWorkflowGraph {
     }
   }
 
+  renderStealthSlotsReceipt(batchOrWithdraw: any) {
+    const listEl = document.getElementById("stealth-slots-list");
+    const counterEl = document.getElementById("stealth-slots-counter");
+    if (!listEl) return;
+
+    const slots = batchOrWithdraw.slots || [];
+    let completedCount = 0;
+
+    listEl.innerHTML = slots
+      .map((slot: any, idx: number) => {
+        const isDone = Boolean(slot.executed);
+        if (isDone) completedCount++;
+        const currentTx = slot.dispatchTxHash || (idx === 0 ? this.latestWithdrawTxHash : "");
+        if (currentTx) {
+          this.slotTxHashes[idx] = currentTx;
+        }
+
+        let txInfoHtml = "";
+        if (isDone && currentTx) {
+          const shortTx = `${currentTx.slice(0, 8)}...${currentTx.slice(-6)}`;
+          txInfoHtml = `
+            <div class="slot-receipt-tx-row">
+              <span class="slot-tx-mono" title="${currentTx}">🔗 ${shortTx}</span>
+              <div class="slot-tx-actions">
+                <button type="button" class="btn-copy-tx-mini" data-tx="${currentTx}" title="Salin Full Tx Hash">📋</button>
+                <button type="button" class="btn-audit-tx-mini" data-tx="${currentTx}" title="Audit Tx di Mode Forensik">🕵️</button>
+              </div>
+            </div>
+          `;
+        } else {
+          const rem = slot.secondsRemaining !== undefined ? slot.secondsRemaining : slot.delaySec;
+          txInfoHtml = `
+            <div class="slot-receipt-tx-row">
+              <span class="rec-tx-pill pending" id="slot-status-pill-${idx}">⏳ Antrean Timelock (+${rem}s)</span>
+            </div>
+          `;
+        }
+
+        return `
+          <div class="slot-receipt-item ${isDone ? "confirmed" : ""}" id="slot-receipt-item-${idx}">
+            <div class="slot-receipt-top">
+              <span class="slot-receipt-name">Slot #${idx + 1} (${slot.recipientName})</span>
+              <span class="slot-receipt-amt">${isDone ? "✅" : "⏱️"} +${slot.amountEth} ETH</span>
+            </div>
+            ${txInfoHtml}
+          </div>
+        `;
+      })
+      .join("");
+
+    if (counterEl) {
+      counterEl.textContent = `${completedCount}/4 Selesai`;
+    }
+
+    this.attachTxMiniButtonListeners();
+  }
+
+  attachTxMiniButtonListeners() {
+    document.querySelectorAll<HTMLButtonElement>(".btn-copy-tx-mini").forEach((btn) => {
+      if (btn.dataset.bound) return;
+      btn.dataset.bound = "true";
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const tx = btn.getAttribute("data-tx");
+        if (tx) {
+          this.copyToClipboard(tx, `📋 Tx Hash ${tx.slice(0, 10)}... berhasil disalin!`);
+        }
+      });
+    });
+
+    document.querySelectorAll<HTMLButtonElement>(".btn-audit-tx-mini").forEach((btn) => {
+      if (btn.dataset.bound) return;
+      btn.dataset.bound = "true";
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const tx = btn.getAttribute("data-tx");
+        if (tx) {
+          this.openForensicModalForTx(tx);
+        }
+      });
+    });
+  }
+
   // ==========================================================================
   // DRAGGABLE RESIZER, FULL-SPACE PANORAMA & FLOATING WINDOW LOGIC
   // ==========================================================================
   setupResizableRightPanel() {
     const resizer = document.getElementById("panel-resizer");
-    const btnMax = document.getElementById("btn-maximize-panel");
-    const btnFloat = document.getElementById("btn-float-panel");
-    const dragHeader = document.getElementById("panel-drag-header");
 
-    // 1. Drag-to-Resize Left Splitter
+    // Drag-to-Resize Left Splitter
     let isResizing = false;
     let startX = 0;
     let startWidth = 0;
 
     resizer?.addEventListener("mousedown", (e) => {
-      if (this.rightPanel.classList.contains("floating-window") || this.rightPanel.classList.contains("full-space")) {
-        return;
-      }
       isResizing = true;
       startX = e.clientX;
       startWidth = this.rightPanel.offsetWidth;
@@ -1535,107 +2233,9 @@ class ZKWorkflowGraph {
       this.updateAllCables();
       this.drawMinimap();
     });
-
-    // 2. Full Space (Maximize) Button
-    btnMax?.addEventListener("click", () => {
-      const isFull = this.rightPanel.classList.toggle("full-space");
-      btnMax.classList.toggle("active", isFull);
-
-      if (isFull) {
-        this.rightPanel.classList.remove("floating-window");
-        btnFloat?.classList.remove("active");
-        this.rightPanel.style.width = "";
-        this.rightPanel.style.height = "";
-        this.rightPanel.style.left = "";
-        this.rightPanel.style.top = "";
-        btnMax.title = "Kembalikan Ukuran Normal";
-        btnMax.innerHTML = `
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M4 14h6v6m10-10h-6V4m0 6 7-7M10 14l-7 7"/>
-          </svg>
-        `;
-        this.showToast("⛶ Mode Layar Penuh: Semua kartu ditampilkan berdampingan!");
-      } else {
-        this.rightPanel.style.width = "420px";
-        btnMax.title = "Layar Penuh / Ruang Penuh (Full Space)";
-        btnMax.innerHTML = `
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="icon-maximize">
-            <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
-          </svg>
-        `;
-        this.showToast("Ukuran panel dikembalikan ke default.");
-      }
-      setTimeout(() => {
-        this.updateAllCables();
-        this.drawMinimap();
-      }, 300);
-    });
-
-    // 3. Floating Window Mode (Pop-out & Drag-and-Drop)
-    btnFloat?.addEventListener("click", () => {
-      const isFloating = this.rightPanel.classList.toggle("floating-window");
-      btnFloat.classList.toggle("active", isFloating);
-
-      if (isFloating) {
-        this.rightPanel.classList.remove("full-space");
-        btnMax?.classList.remove("active");
-        this.rightPanel.style.width = "780px";
-        this.rightPanel.style.height = "80vh";
-        this.rightPanel.style.left = "";
-        this.rightPanel.style.right = "40px";
-        this.rightPanel.style.top = "60px";
-        this.rightPanel.classList.add("is-wide-layout");
-        btnFloat.title = "Kembalikan ke Dock Samping";
-        this.showToast("⧉ Mode Jendela Mengambang: Drag header untuk geser, atau tarik sudut kanan-bawah untuk resize!");
-      } else {
-        this.rightPanel.classList.remove("is-wide-layout");
-        this.rightPanel.style.width = "420px";
-        this.rightPanel.style.height = "";
-        this.rightPanel.style.left = "";
-        this.rightPanel.style.top = "";
-        btnFloat.title = "Mode Jendela Mengambang (Bisa di-Drag & Drop bebas)";
-        this.showToast("Panel dikembalikan ke sisi kanan (Docked).");
-      }
-      setTimeout(() => {
-        this.updateAllCables();
-        this.drawMinimap();
-      }, 300);
-    });
-
-    // 4. Drag & Drop Floating Window Movement
-    let isDraggingWindow = false;
-    let winOffsetX = 0;
-    let winOffsetY = 0;
-
-    dragHeader?.addEventListener("mousedown", (e) => {
-      if (!this.rightPanel.classList.contains("floating-window")) return;
-      if ((e.target as HTMLElement).closest("button")) return; // Jangan drag jika klik tombol
-
-      isDraggingWindow = true;
-      const rect = this.rightPanel.getBoundingClientRect();
-      winOffsetX = e.clientX - rect.left;
-      winOffsetY = e.clientY - rect.top;
-      document.body.classList.add("dragging-panel-window");
-      e.preventDefault();
-    });
-
-    window.addEventListener("mousemove", (e) => {
-      if (!isDraggingWindow) return;
-      const x = Math.max(10, Math.min(window.innerWidth - 100, e.clientX - winOffsetX));
-      const y = Math.max(10, Math.min(window.innerHeight - 100, e.clientY - winOffsetY));
-      this.rightPanel.style.left = `${x}px`;
-      this.rightPanel.style.top = `${y}px`;
-      this.rightPanel.style.right = "auto";
-    });
-
-    window.addEventListener("mouseup", () => {
-      if (!isDraggingWindow) return;
-      isDraggingWindow = false;
-      document.body.classList.remove("dragging-panel-window");
-    });
   }
 
-  setScenario(scenario: "normal" | "hijack" | "doublespend") {
+  setScenario(scenario: "normal" | "stealth" | "hijack" | "doublespend" | "aging") {
     this.selectedScenario = scenario;
     this.hideDefenseStamp();
     this.highlightScenarioButton(scenario);
@@ -1646,14 +2246,24 @@ class ZKWorkflowGraph {
         title: "1. Alur Anonim Penuh (Normal)",
         desc: "Deposit 1.0 ETH baru ➔ Kupon ZK ➔ Split ke 4 teman"
       },
+      stealth: {
+        icon: "🎲⏱️",
+        title: "2. Stealth Split (Acak & Jeda)",
+        desc: "Pencairan bertahap dengan timelock escrow & nominal acak"
+      },
+      aging: {
+        icon: "⏳👥",
+        title: "5. Deposit Aging & Kerumunan Penyetor",
+        desc: "Simulasi trafik nyata: jeda waktu +3 jam & 3 penyetor lain masuk (Privasi Maksimal)"
+      },
       hijack: {
         icon: "⚔️",
-        title: "2. Uji Sabotase Kurir (Front-Running)",
+        title: "3. Uji Sabotase Kurir (Front-Running)",
         desc: "Kurir mencoba ganti alamat penerima ke dompetnya"
       },
       doublespend: {
         icon: "⚠️",
-        title: "3. Uji Double-Spending",
+        title: "4. Uji Double-Spending",
         desc: "Cairkan kupon putaran sebelumnya untuk kedua kali"
       }
     }[scenario];
@@ -1668,13 +2278,22 @@ class ZKWorkflowGraph {
     }
 
     if (scenario === "normal") {
+      this.setSplitMode("equal");
       this.setStatusText("Mode: 1. Alur Anonim Normal (Klik 'Run Flow' untuk mulai)");
-      this.log("Pilihan disetel: Mode Alur Normal. Silakan klik tombol 'Run Flow' untuk eksekusi.", "normal");
+      this.log("Pilihan disetel: Mode Alur Normal (25% Rata). Silakan klik tombol 'Run Flow' untuk eksekusi.", "normal");
+    } else if (scenario === "stealth") {
+      this.setSplitMode("stealth");
+      this.setStatusText("Mode: 2. Stealth Split (Klik 'Run Flow' untuk mulai)");
+      this.log("Pilihan disetel: Mode Stealth Split (Acak & Terjadwal). Klik 'Run Flow' untuk menguji de-korelasi forensik.", "normal");
+    } else if (scenario === "aging") {
+      this.setSplitMode("equal");
+      this.setStatusText("Mode: 5. Deposit Aging & Kerumunan (Klik 'Run Flow' untuk mulai)");
+      this.log("Pilihan disetel: Mode Deposit Aging & Multi-Penyetor. Klik 'Run Flow' untuk melihat de-anonimisasi gagal total!", "normal");
     } else if (scenario === "hijack") {
-      this.setStatusText("Mode: 2. Uji Sabotase Kurir (Klik 'Run Flow' untuk mulai)");
+      this.setStatusText("Mode: 3. Uji Sabotase Kurir (Klik 'Run Flow' untuk mulai)");
       this.log("Pilihan disetel: Mode Uji Sabotase Kurir (Front-Running). Klik 'Run Flow' untuk melihat transaksi dibatalkan.", "warning");
     } else if (scenario === "doublespend") {
-      this.setStatusText("Mode: 3. Uji Double-Spending (Klik 'Run Flow' untuk mulai)");
+      this.setStatusText("Mode: 4. Uji Double-Spending (Klik 'Run Flow' untuk mulai)");
       this.log("Pilihan disetel: Mode Uji Double-Spending. Klik 'Run Flow' untuk melihat pembatalan kupon duplikat.", "warning");
     }
   }
@@ -2001,6 +2620,11 @@ class ZKWorkflowGraph {
       card.classList.toggle("selected", card.getAttribute("data-node-id") === nodeId);
     });
 
+    this.renderInspectorCardOnly(nodeId);
+    this.drawMinimap();
+  }
+
+  renderInspectorCardOnly(nodeId: string) {
     const data = this.nodeDatabase[nodeId];
     if (!data) return;
 
@@ -2056,16 +2680,6 @@ class ZKWorkflowGraph {
         `;
       }
 
-      let techRows = "";
-      for (const [key, val] of techEntries) {
-        techRows += `
-          <tr>
-            <td class="prop-key tech-key">${key}</td>
-            <td class="prop-val tech-val">${val}</td>
-          </tr>
-        `;
-      }
-
       bodyEl.innerHTML = `
         <div class="inspector-card-content">
           <div class="inspector-badge-row">
@@ -2078,58 +2692,27 @@ class ZKWorkflowGraph {
             <tbody>${coreRows}</tbody>
           </table>
 
-          <!-- Expand on Demand Toggle -->
-          ${
-            techEntries.length > 0 || data.description
-              ? `
-            <div class="inspector-expand-wrap">
-              <button class="btn-expand-props" id="btn-toggle-tech-props" type="button">
-                <span class="expand-icon" id="props-expand-icon">▾</span>
-                <span class="expand-label" id="props-expand-label">Detail Kriptografi &amp; Kunci Rahasia</span>
-              </button>
-            </div>
-
-            <div class="inspector-tech-props" id="inspector-tech-props" hidden>
-              ${
-                techEntries.length > 0
-                  ? `
-                <div class="tech-props-header">
-                  <span class="tech-icon">🔐</span>
-                  <span class="tech-title">Parameter Kriptografi &amp; Sirkuit:</span>
-                </div>
-                <table class="prop-table prop-table-tech">
-                  <tbody>${techRows}</tbody>
-                </table>
-              `
-                  : ""
-              }
-              <div class="inspector-desc-box">
-                <span class="desc-icon">ℹ️</span>
-                <p class="desc-text">${data.description}</p>
-              </div>
-            </div>
-          `
-              : ""
-          }
+          <!-- Open Spacious Popup Button -->
+          <div class="inspector-popup-trigger-wrap">
+            <button class="btn-open-popup-props" id="btn-open-tech-popup" type="button" title="Buka dialog luas untuk melihat semua parameter kriptografi dan sirkuit">
+              <span class="popup-btn-icon">🔐</span>
+              <span class="popup-btn-label">Buka Popup Detail Kriptografi &amp; Sirkuit</span>
+              <span class="popup-btn-arrow">↗</span>
+            </button>
+          </div>
         </div>
       `;
 
-      const btnToggle = document.getElementById("btn-toggle-tech-props");
-      const techProps = document.getElementById("inspector-tech-props");
-      const expandIcon = document.getElementById("props-expand-icon");
-      const expandLabel = document.getElementById("props-expand-label");
-
-      btnToggle?.addEventListener("click", () => {
-        if (!techProps) return;
-        const isHidden = techProps.hidden;
-        techProps.hidden = !isHidden;
-        if (expandIcon) expandIcon.textContent = isHidden ? "▴" : "▾";
-        if (expandLabel) expandLabel.textContent = isHidden ? "Sembunyikan Rincian Kriptografi" : "Detail Kriptografi & Kunci Rahasia";
-        btnToggle.classList.toggle("active", Boolean(isHidden));
+      document.getElementById("btn-open-tech-popup")?.addEventListener("click", () => {
+        this.openTechPropsModal(nodeId);
       });
     }
 
-    this.drawMinimap();
+    // Jika modal popup saat ini sedang terbuka, sinkronkan isinya secara real-time
+    const modalBackdrop = document.getElementById("modal-tech-props-backdrop");
+    if (modalBackdrop?.classList.contains("open")) {
+      this.updateTechPropsModalContent(nodeId);
+    }
   }
 
   startLiveTimer(): number {
@@ -2247,8 +2830,10 @@ class ZKWorkflowGraph {
       return;
     }
 
-    if (this.selectedScenario === "normal") {
+    if (this.selectedScenario === "normal" || this.selectedScenario === "stealth") {
       this.runNormalRound();
+    } else if (this.selectedScenario === "aging") {
+      this.runAgingCrowdRound();
     } else if (this.selectedScenario === "hijack") {
       this.runHijackAttack();
     } else if (this.selectedScenario === "doublespend") {
@@ -2269,10 +2854,15 @@ class ZKWorkflowGraph {
     const startTime = this.startLiveTimer();
     const dep = ACCOUNTS_DATA[this.depositorKey];
     const splitEth = (this.vaultDenomination / 4).toFixed(4);
+    const isStealth = this.splitMode === "stealth" || this.selectedScenario === "stealth";
 
     this.currentRound++;
+    this.slotTxHashes = {};
     this.setRoundBadge(this.currentRound);
-    this.log(`🚀 [PUTARAN #${this.currentRound}] Memulai alur ZK-Splitter di Hardhat EVM (Penyetor: ${dep.name}, Nilai: ${this.vaultDenomination.toFixed(2)} ETH)...`, "normal");
+    this.log(
+      `🚀 [PUTARAN #${this.currentRound}] Memulai alur ZK-Splitter di Hardhat EVM (Penyetor: ${dep.name}, Nilai: ${this.vaultDenomination.toFixed(2)} ETH, Mode: ${isStealth ? "Stealth Acak & Terjadwal" : "25% Rata"})...`,
+      "normal"
+    );
 
     // STEP 1: Dynamic Depositor Deposit On-Chain
     this.selectNode("alice");
@@ -2340,6 +2930,8 @@ class ZKWorkflowGraph {
 
     document.getElementById("val-merkle-root")!.innerText = `${depositData.merkleRootHex.slice(0, 10)}...`;
     this.log(`✅ Daun komitmen dimasukkan ke Merkle Tree pada Index #${depositData.leafIndex}. Akar Baru: ${depositData.merkleRootHex.slice(0, 14)}...`, "success");
+    if (depositData.merkleRootHex) this.currentRootHex = depositData.merkleRootHex;
+    if (depositData.leafIndex !== undefined) this.treeLeafCount = depositData.leafIndex + 1;
     this.updateDynamicUI();
 
     await this.delay(900);
@@ -2370,6 +2962,9 @@ class ZKWorkflowGraph {
       return;
     }
 
+    this.lastProvingTimeMs = proveData.provingTimeMs || 0;
+    if (proveData.nullifierHash) this.currentNullifierHashHex = proveData.nullifierHash;
+    if (proveData.root) this.currentRootHex = proveData.root;
     document.getElementById("val-proof-time")!.innerText = `${proveData.provingTimeMs} ms (Groth16)`;
     this.log(`✅ Bukti ZK asli selesai dihitung dalam ${proveData.provingTimeMs} ms! Terkunci pada 4 alamat penerima.`, "success");
     this.updateDynamicUI();
@@ -2388,7 +2983,14 @@ class ZKWorkflowGraph {
     const cable4 = document.getElementById("cable-4");
     cable4?.setAttribute("class", "cable cable-flow-green");
 
-    this.log("Kurir Relayer memanggil `ZKVault.withdrawSplit(...)` di blockchain...", "normal");
+    if (isStealth) {
+      this.log(
+        `🕵️ Kurir Relayer memanggil \`ZKVault.withdrawScheduledSplit(...)\` dengan 4 nominal acak dan antrean timelock on-chain...`,
+        "normal"
+      );
+    } else {
+      this.log("Kurir Relayer memanggil `ZKVault.withdrawSplit(...)` di blockchain...", "normal");
+    }
 
     let withdrawData: any;
     try {
@@ -2413,36 +3015,112 @@ class ZKWorkflowGraph {
     this.relayerBalance = parseFloat(withdrawData.balances.relayer);
 
     this.latestWithdrawTxHash = withdrawData.txHash;
+    this.lastGasUsed = withdrawData.gasUsed || 0;
+    this.lastBlockNumber = withdrawData.blockNumber || 0;
+    if (withdrawData.batchId) this.lastBatchId = withdrawData.batchId;
     if (withdrawData.depositTxHash) {
       this.latestDepositTxHash = withdrawData.depositTxHash;
     }
+    this.updateDynamicUI();
     this.displayOnChainReceipt(withdrawData);
     this.fetchWithdrawHistory();
 
-    if (withdrawData.recipients && Array.isArray(withdrawData.recipients)) {
-      withdrawData.recipients.forEach((rec: any) => {
-        if (rec.key && this.accountBalances[rec.key] !== undefined) {
-          this.accountBalances[rec.key] = parseFloat(rec.balance);
+    if (withdrawData.splitMode === "stealth") {
+      this.selectNode("recipients");
+      nodeRecipients?.classList.add("running-step");
+
+      this.log(
+        `✅ Transaksi Timelock Batch Terbit di Block #${withdrawData.blockNumber}! Tx: ${withdrawData.txHash.slice(0, 16)}...`,
+        "success"
+      );
+      this.log(
+        `🛡️ [DE-KORELASI AKTIF] Pembagian nominal acak diterapkan: [${withdrawData.recipients.map((r: any) => `${r.name}: ${r.scheduledEth} ETH`).join(", ")}].`,
+        "normal"
+      );
+      this.log(
+        `⏱️ Slot #1 dicairkan seketika. Slot #2, #3, #4 masuk antrean Timelock Escrow di smart contract.`,
+        "normal"
+      );
+
+      // Update slot 0 transaction on canvas card
+      this.slotTxHashes[0] = withdrawData.txHash;
+      const rec0TxRow = document.getElementById("rec-tx-row-0");
+      if (rec0TxRow) {
+        const shortTx = `${withdrawData.txHash.slice(0, 6)}...${withdrawData.txHash.slice(-4)}`;
+        rec0TxRow.innerHTML = `
+          <div class="rec-tx-link-wrap">
+            <span class="rec-tx-code" title="${withdrawData.txHash}">🔗 ${shortTx}</span>
+            <button type="button" class="btn-copy-tx-mini" data-tx="${withdrawData.txHash}" title="Salin Full Tx Hash">📋</button>
+            <button type="button" class="btn-audit-tx-mini" data-tx="${withdrawData.txHash}" title="Audit Tx Ini di Mode Forensik">🕵️</button>
+          </div>
+        `;
+      }
+      this.attachTxMiniButtonListeners();
+
+      // Animate slot 0 immediate receipt
+      const rec0 = document.getElementById("rec-item-0");
+      rec0?.classList.add("received");
+      const pill0 = document.getElementById("rec-timer-0");
+      if (pill0) {
+        pill0.className = "rec-timer-pill done";
+        pill0.innerText = `✅ +${withdrawData.slots[0].amountEth} ETH`;
+      }
+      const prog0 = document.getElementById("rec-prog-0");
+      if (prog0) prog0.style.width = "100%";
+
+      // Poll and monitor queue until all slots executed
+      await this.monitorScheduledBatch(withdrawData.batchId);
+
+      this.log(
+        `🎉 [STEALTH SPLIT SELESAI] Seluruh 4 penerima berhasil menerima dana acak di waktu yang terpisah!`,
+        "success"
+      );
+      this.log(
+        `🛡️ AUDIT ON-CHAIN: Korelasi nominal dan temporal 100% gagal melacak penyetor ${dep.name}!`,
+        "success"
+      );
+    } else {
+      if (withdrawData.recipients && Array.isArray(withdrawData.recipients)) {
+        withdrawData.recipients.forEach((rec: any) => {
+          if (rec.key && this.accountBalances[rec.key] !== undefined) {
+            this.accountBalances[rec.key] = parseFloat(rec.balance);
+          }
+        });
+      }
+
+      for (let i = 0; i < 4; i++) {
+        this.slotTxHashes[i] = withdrawData.txHash;
+        const row = document.getElementById(`rec-tx-row-${i}`);
+        if (row) {
+          const shortTx = `${withdrawData.txHash.slice(0, 6)}...${withdrawData.txHash.slice(-4)}`;
+          row.innerHTML = `
+            <div class="rec-tx-link-wrap">
+              <span class="rec-tx-code" title="${withdrawData.txHash}">🔗 ${shortTx}</span>
+              <button type="button" class="btn-copy-tx-mini" data-tx="${withdrawData.txHash}" title="Salin Full Tx Hash">📋</button>
+              <button type="button" class="btn-audit-tx-mini" data-tx="${withdrawData.txHash}" title="Audit Tx Ini di Mode Forensik">🕵️</button>
+            </div>
+          `;
         }
-      });
+      }
+      this.attachTxMiniButtonListeners();
+
+      this.updateDynamicUI();
+      this.selectNode("recipients");
+
+      document.querySelectorAll(".recipient-item").forEach((item) => item.classList.add("received"));
+      nodeRecipients?.classList.add("running-step");
+
+      this.log(`✅ Transaksi Konfirmasi di Block #${withdrawData.blockNumber}! Tx: ${withdrawData.txHash.slice(0, 16)}... (Gas: ${withdrawData.gasUsed})`, "success");
+      this.log(
+        `💸 Brankas Kontrak Mencairkan Dana: Seluruh ${this.vaultDenomination.toFixed(2)} ETH dibagikan rata ke 4 dompet penerima (masing-masing +${splitEth} ETH). Saldo brankas kembali menjadi ${withdrawData.balances.vault}.`,
+        "normal"
+      );
+      this.log(
+        `🎉 [SELESAI PUTARAN #${this.currentRound}] 4 Penerima masing-masing menerima +${splitEth} ETH langsung dari kontrak!`,
+        "success"
+      );
+      this.log(`🛡️ AUDIT ON-CHAIN: 100% Tidak Ada Jejak antara ${dep.name} dan Penerima!`, "success");
     }
-
-    this.updateDynamicUI();
-    this.selectNode("recipients");
-
-    document.querySelectorAll(".recipient-item").forEach((item) => item.classList.add("received"));
-    nodeRecipients?.classList.add("running-step");
-
-    this.log(`✅ Transaksi Konfirmasi di Block #${withdrawData.blockNumber}! Tx: ${withdrawData.txHash.slice(0, 16)}... (Gas: ${withdrawData.gasUsed})`, "success");
-    this.log(
-      `💸 Brankas Kontrak Mencairkan Dana: Seluruh ${this.vaultDenomination.toFixed(2)} ETH dibagikan rata ke 4 dompet penerima (masing-masing +${splitEth} ETH). Saldo brankas kembali menjadi ${withdrawData.balances.vault}.`,
-      "normal"
-    );
-    this.log(
-      `🎉 [SELESAI PUTARAN #${this.currentRound}] 4 Penerima masing-masing menerima +${splitEth} ETH langsung dari kontrak!`,
-      "success"
-    );
-    this.log(`🛡️ AUDIT ON-CHAIN: 100% Tidak Ada Jejak antara ${dep.name} dan Penerima!`, "success");
 
     await this.delay(1000);
     nodeRelayer?.classList.remove("running-step");
@@ -2454,6 +3132,392 @@ class ZKWorkflowGraph {
 
     if (btnRun) btnRun.disabled = false;
     this.isRunning = false;
+  }
+
+  async monitorScheduledBatch(batchId: string): Promise<void> {
+    return new Promise<void>((resolve) => {
+      let isDone = false;
+      const startTime = Date.now();
+
+      const timerInterval = setInterval(async () => {
+        try {
+          const res = await fetch("/api/scheduled-queue");
+          const data = await res.json();
+          if (!data.success) return;
+
+          const batch = (data.batches || []).find((b: any) => b.batchId === batchId);
+          if (!batch) return;
+
+          let allCompleted = true;
+
+          for (let i = 0; i < batch.slots.length; i++) {
+            const slot = batch.slots[i];
+            const pill = document.getElementById(`rec-timer-${i}`);
+            const prog = document.getElementById(`rec-prog-${i}`);
+            const item = document.getElementById(`rec-item-${i}`);
+            const balEl = document.getElementById(`rec-bal-${i}`);
+
+            if (slot.executed) {
+              const currentTx = slot.dispatchTxHash || (i === 0 ? this.latestWithdrawTxHash : "");
+              if (currentTx) {
+                this.slotTxHashes[i] = currentTx;
+                const recTxRow = document.getElementById(`rec-tx-row-${i}`);
+                if (recTxRow && !recTxRow.querySelector(".btn-audit-tx-mini")) {
+                  const shortTx = `${currentTx.slice(0, 6)}...${currentTx.slice(-4)}`;
+                  recTxRow.innerHTML = `
+                    <div class="rec-tx-link-wrap">
+                      <span class="rec-tx-code" title="${currentTx}">🔗 ${shortTx}</span>
+                      <button type="button" class="btn-copy-tx-mini" data-tx="${currentTx}" title="Salin Full Tx Hash">📋</button>
+                      <button type="button" class="btn-audit-tx-mini" data-tx="${currentTx}" title="Audit Tx Ini di Mode Forensik">🕵️</button>
+                    </div>
+                  `;
+                  this.attachTxMiniButtonListeners();
+                }
+              }
+
+              if (item && !item.classList.contains("received")) {
+                item.classList.add("received");
+                this.log(
+                  `💸 [RELAYER KEEPER] Slot #${i + 1} (${slot.recipientName}) menerima dana ${slot.amountEth} ETH on-chain! Tx: ${currentTx ? currentTx.slice(0, 14) + "..." : "Confirmed"}`,
+                  "success"
+                );
+                // Pulse cable 4
+                const cable4 = document.getElementById("cable-4");
+                cable4?.setAttribute("class", "cable cable-flow-green");
+              }
+              if (pill) {
+                pill.className = "rec-timer-pill done";
+                pill.innerText = `✅ +${slot.amountEth} ETH`;
+              }
+              if (prog) prog.style.width = "100%";
+            } else {
+              allCompleted = false;
+              const rem =
+                slot.secondsRemaining !== undefined && slot.secondsRemaining > 0
+                  ? slot.secondsRemaining
+                  : Math.max(0, slot.delaySec - Math.floor((Date.now() - startTime) / 1000));
+              if (pill) {
+                pill.innerText = `⏳ ${rem}s`;
+              }
+              if (prog && slot.delaySec > 0) {
+                const elapsed = slot.delaySec - rem;
+                const pct = Math.min(100, Math.max(0, (elapsed / slot.delaySec) * 100));
+                prog.style.width = `${pct}%`;
+              }
+            }
+
+            // Sync live balance
+            if (slot.recipientKey && this.accountBalances[slot.recipientKey] !== undefined) {
+              const statusRes = await fetch("/api/status");
+              const statusData = await statusRes.json();
+              if (statusData.balances && statusData.balances[slot.recipientKey]) {
+                const newBal = parseFloat(statusData.balances[slot.recipientKey]);
+                this.accountBalances[slot.recipientKey] = newBal;
+                if (balEl) balEl.innerText = `${newBal.toFixed(4)} ETH`;
+              }
+              if (statusData.balances && statusData.balances.vault) {
+                this.vaultBalance = parseFloat(statusData.balances.vault);
+                const valVaultBal = document.getElementById("val-vault-balance");
+                if (valVaultBal) valVaultBal.innerText = `${this.vaultBalance.toFixed(4)} ETH`;
+              }
+            }
+          }
+
+          // Live update stealth receipt breakdown in drawer
+          this.renderStealthSlotsReceipt(batch);
+
+          // Update banner and receipt badge with real progress
+          const completedCount = batch.slots.filter((s: any) => s.executed).length;
+          const receiptBadge = document.getElementById("receipt-status-badge");
+          const bannerBadge = document.querySelector("#floating-tx-banner .banner-badge span:last-child");
+          const bannerTitle = document.getElementById("banner-title");
+
+          if (completedCount < 4) {
+            if (receiptBadge) {
+              receiptBadge.textContent = `⏳ ESCROW (${completedCount}/4)`;
+              receiptBadge.className = "receipt-badge badge-pending";
+            }
+            if (bannerBadge) bannerBadge.textContent = `⏳ TIMELOCK ESCROW (${completedCount}/4 SELESAI)`;
+            if (bannerTitle) bannerTitle.textContent = `Putaran #${this.currentRound}: ${completedCount}/4 Penerima Telah Menerima Saldo On-Chain...`;
+          } else {
+            if (receiptBadge) {
+              receiptBadge.textContent = "CONFIRMED (4/4 Selesai)";
+              receiptBadge.className = "receipt-badge badge-confirmed";
+            }
+            if (bannerBadge) bannerBadge.textContent = "TRANSAKSI ON-CHAIN LENGKAP";
+            if (bannerTitle) bannerTitle.textContent = `Putaran #${this.currentRound}: Seluruh 4 Penerima Sukses Dicairkan Bertahap!`;
+          }
+
+          // Real-time inspector update for active timelock countdowns
+          this.refreshInspectorDatabase();
+          if (this.selectedNodeId) {
+            this.selectNode(this.selectedNodeId);
+          }
+
+          if (batch.completed || allCompleted) {
+            clearInterval(timerInterval);
+            isDone = true;
+            this.updateDynamicUI();
+            resolve();
+          }
+        } catch (err) {
+          console.error("Queue monitor error:", err);
+        }
+      }, 1000);
+
+      // Timeout safety after 120 seconds
+      setTimeout(() => {
+        if (!isDone) {
+          clearInterval(timerInterval);
+          resolve();
+        }
+      }, 120000);
+    });
+  }
+
+  // ==========================================================================
+  // 5. DEPOSIT AGING & MULTI-DEPOSITOR CROWD SCENARIO (PRIVACY MAXIMIZATION)
+  // ==========================================================================
+  async runAgingCrowdRound() {
+    this.isRunning = true;
+    this.hideDefenseStamp();
+
+    const btnRun = document.getElementById("btn-run-workflow") as HTMLButtonElement;
+    if (btnRun) btnRun.disabled = true;
+
+    const startTime = this.startLiveTimer();
+    const dep = ACCOUNTS_DATA[this.depositorKey] || ACCOUNTS_DATA.alice;
+
+    this.currentRound++;
+    this.slotTxHashes = {};
+    this.setRoundBadge(this.currentRound);
+    this.log(
+      `🚀 [PUTARAN #${this.currentRound} - SKENARIO 5] Memulai Simulasi Trafik Dunia Nyata & Deposit Aging (Penyetor Asli: ${dep.name})...`,
+      "normal"
+    );
+
+    // STEP 1: Depositor Deposit On-Chain
+    this.selectNode("alice");
+    this.setStepBadge("STEP 1/5");
+    this.setStatusText(`Putaran #${this.currentRound} - 1. ${dep.name} Menyetor ${this.vaultDenomination.toFixed(2)} ETH`);
+
+    const nodeAlice = document.getElementById("node-alice");
+    const nodeVault = document.getElementById("node-vault");
+    const cable1 = document.getElementById("cable-1");
+
+    nodeAlice?.classList.add("running-step");
+    cable1?.setAttribute("class", "cable cable-active");
+
+    this.log(`${dep.name} membuat rahasia (secret & nullifier) dan menyetor ${this.vaultDenomination.toFixed(2)} ETH ke smart contract ZKVault on-chain...`, "normal");
+
+    let depositData: any;
+    try {
+      const depRes = await fetch("/api/deposit", { method: "POST" });
+      depositData = await depRes.json();
+      if (!depositData.success) throw new Error(depositData.error);
+    } catch (e: any) {
+      this.log(`❌ Gagal menyetor ke blockchain: ${e.message}`, "error");
+      this.stopLiveTimer(startTime);
+      if (btnRun) btnRun.disabled = false;
+      this.isRunning = false;
+      return;
+    }
+
+    this.currentSecretHex = depositData.deposit.secretHex;
+    this.currentNullifierHex = depositData.deposit.nullifierHex;
+    this.currentCommitmentHex = depositData.deposit.commitmentHex;
+    this.currentNullifierHashHex = depositData.deposit.nullifierHashHex;
+    this.previousNullifiers.push(this.currentNullifierHashHex);
+
+    document.getElementById("val-secret")!.innerText = `${this.currentSecretHex.slice(0, 10)}... (254-bit)`;
+    document.getElementById("val-nullifier")!.innerText = `${this.currentNullifierHex.slice(0, 10)}... (254-bit)`;
+    document.getElementById("val-nullifier-hash")!.innerText = `${this.currentNullifierHashHex.slice(0, 10)}...`;
+
+    this.accountBalances[this.depositorKey] = parseFloat(depositData.balances.depositor);
+    this.vaultBalance = parseFloat(depositData.balances.vault);
+    this.updateDynamicUI();
+
+    this.latestDepositTxHash = depositData.txHash;
+    const depEl = document.getElementById("receipt-deposit-tx");
+    if (depEl) {
+      depEl.textContent = this.latestDepositTxHash;
+      depEl.title = this.latestDepositTxHash;
+    }
+
+    this.log(
+      `✅ On-chain Deposit ${dep.name} Sukses! Leaf Index #${depositData.leafIndex}. Tx: ${depositData.txHash.slice(0, 16)}... (Block #${depositData.blockNumber})`,
+      "success"
+    );
+    await this.delay(900);
+    nodeAlice?.classList.remove("running-step");
+
+    // INTERLUDE STEP: Real-World Crowd & Deposit Aging
+    this.selectNode("vault");
+    this.setStepBadge("STEP 2/5");
+    this.setStatusText(`Putaran #${this.currentRound} - 2. Simulasi Trafik & Aging (+3 Jam)`);
+    nodeVault?.classList.add("running-step");
+
+    this.log(
+      `🌐 [SIMULASI TRAFIK JARINGAN NYATA] Menyuntikkan 3 penyetor lain (Frank, Grace, Heidi) ke dalam brankas...`,
+      "warning"
+    );
+    this.log(
+      `⏳ [DEPOSIT AGING] Memajukan waktu blockchain +3 Jam & menambang 30 blok baru...`,
+      "warning"
+    );
+
+    let trafficData: any;
+    try {
+      const trafRes = await fetch("/api/simulate-aging-traffic", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hours: 3, blocks: 30 }),
+      });
+      trafficData = await trafRes.json();
+      if (!trafficData.success) throw new Error(trafficData.error);
+    } catch (e: any) {
+      this.log(`❌ Gagal simulasi trafik jaringan: ${e.message}`, "error");
+      this.stopLiveTimer(startTime);
+      if (btnRun) btnRun.disabled = false;
+      this.isRunning = false;
+      return;
+    }
+
+    this.vaultBalance = parseFloat(trafficData.vaultBalance);
+    this.treeLeafCount = trafficData.totalLeaves;
+    if (trafficData.newMerkleRootHex) this.currentRootHex = trafficData.newMerkleRootHex;
+
+    this.log(
+      `✅ [TRAFIK BERHASIL] 3 Penyetor baru terdaftar on-chain! Total daun pohon Merkle kini menjadi ${trafficData.totalLeaves} (k=${trafficData.totalLeaves}).`,
+      "success"
+    );
+    this.log(
+      `🕒 [WAKTU MAJU] Waktu EVM maju +${trafficData.agedHours} Jam! Blok blockchain melompat ke #${trafficData.currentBlock}. Setoran ${dep.name} kini berusia 180 menit di masa lalu!`,
+      "success"
+    );
+
+    const cable2 = document.getElementById("cable-2");
+    cable2?.setAttribute("class", "cable cable-flow-purple");
+    this.updateDynamicUI();
+    await this.delay(1200);
+    nodeVault?.classList.remove("running-step");
+
+    // STEP 3: Real ZK Proof Computation on NEW Merkle Root
+    this.selectNode("prover");
+    this.setStepBadge("STEP 3/5");
+    this.setStatusText(`Putaran #${this.currentRound} - 3. Groth16 Prover`);
+
+    const nodeProver = document.getElementById("node-prover");
+    nodeProver?.classList.add("running-step");
+    const cable3 = document.getElementById("cable-3");
+    cable3?.setAttribute("class", "cable cable-flow-orange");
+
+    this.log(`Groth16 Prover membuktikan bahwa kupon ${dep.name} ada di daun #${depositData.leafIndex} pada AKAR BARU (k=${trafficData.totalLeaves}) tanpa membuka identitas ${dep.name}...`, "normal");
+
+    let proveData: any;
+    try {
+      const prvRes = await fetch("/api/prove", { method: "POST" });
+      proveData = await prvRes.json();
+      if (!proveData.success) throw new Error(proveData.error);
+    } catch (e: any) {
+      this.log(`❌ Gagal menghitung bukti ZK: ${e.message}`, "error");
+      this.stopLiveTimer(startTime);
+      if (btnRun) btnRun.disabled = false;
+      this.isRunning = false;
+      return;
+    }
+
+    this.lastProvingTimeMs = proveData.provingTimeMs || 0;
+    if (proveData.nullifierHash) this.currentNullifierHashHex = proveData.nullifierHash;
+    document.getElementById("val-proof-time")!.innerText = `${proveData.provingTimeMs} ms (Groth16)`;
+    this.log(`✅ Bukti ZK berhasil diverifikasi terhadap Akar Baru dalam ${proveData.provingTimeMs} ms!`, "success");
+
+    await this.delay(800);
+    nodeProver?.classList.remove("running-step");
+
+    // STEP 4: Relayer Execution & Payout On-Chain
+    this.selectNode("relayer");
+    this.setStepBadge("STEP 4/5");
+    this.setStatusText(`Putaran #${this.currentRound} - 4. Kurir Mencairkan`);
+
+    const nodeRelayer = document.getElementById("node-relayer");
+    nodeRelayer?.classList.add("running-step");
+    const cable4 = document.getElementById("cable-4");
+    cable4?.setAttribute("class", "cable cable-flow-green");
+
+    this.log("Kurir Relayer memanggil `ZKVault.withdrawSplit(...)` di blockchain publik...", "normal");
+
+    let withdrawData: any;
+    try {
+      const wRes = await fetch("/api/withdraw", { method: "POST" });
+      withdrawData = await wRes.json();
+      if (!withdrawData.success) throw new Error(withdrawData.error);
+    } catch (e: any) {
+      this.log(`❌ Gagal mencairkan dari smart contract: ${e.message}`, "error");
+      this.stopLiveTimer(startTime);
+      if (btnRun) btnRun.disabled = false;
+      this.isRunning = false;
+      return;
+    }
+
+    this.latestWithdrawTxHash = withdrawData.txHash;
+    this.lastGasUsed = parseInt(withdrawData.gasUsed) || 320000;
+    this.lastBlockNumber = withdrawData.blockNumber;
+    this.vaultBalance = parseFloat(withdrawData.balances.vault);
+    this.relayerBalance = parseFloat(withdrawData.balances.relayer);
+
+    if (withdrawData.recipients && Array.isArray(withdrawData.recipients)) {
+      withdrawData.recipients.forEach((rec: any) => {
+        if (rec.key && this.accountBalances[rec.key] !== undefined) {
+          this.accountBalances[rec.key] = parseFloat(rec.balance);
+        }
+      });
+    }
+
+    for (let i = 0; i < 4; i++) {
+      this.slotTxHashes[i] = withdrawData.txHash;
+      const row = document.getElementById(`rec-tx-row-${i}`);
+      if (row) {
+        const shortTx = `${withdrawData.txHash.slice(0, 6)}...${withdrawData.txHash.slice(-4)}`;
+        row.innerHTML = `
+          <div class="rec-tx-link-wrap">
+            <span class="rec-tx-code" title="${withdrawData.txHash}">🔗 ${shortTx}</span>
+            <button type="button" class="btn-copy-tx-mini" data-tx="${withdrawData.txHash}" title="Salin Full Tx Hash">📋</button>
+            <button type="button" class="btn-audit-tx-mini" data-tx="${withdrawData.txHash}" title="Audit Tx Ini di Mode Forensik">🕵️</button>
+          </div>
+        `;
+      }
+    }
+    this.attachTxMiniButtonListeners();
+
+    this.updateDynamicUI();
+    document.querySelectorAll(".recipient-item").forEach((item) => item.classList.add("received"));
+
+    this.log(
+      `✅ Pencairan Berhasil! 4 Penerima masing-masing menerima bagian ETH on-chain! Tx: ${withdrawData.txHash.slice(0, 16)}... (Block #${withdrawData.blockNumber})`,
+      "success"
+    );
+
+    await this.delay(700);
+    nodeRelayer?.classList.remove("running-step");
+
+    // STEP 5: Final Result & Prompt for Forensic Audit
+    this.selectNode("recipients");
+    this.setStepBadge("STEP 5/5");
+    this.setStatusText(`Putaran #${this.currentRound} - Selesai (Privasi Terjaga)`);
+
+    this.stopLiveTimer(startTime);
+    if (btnRun) btnRun.disabled = false;
+    this.isRunning = false;
+
+    this.log(
+      `🎉 [SKENARIO 5 SELESAI] Penyetor ${dep.name} sukses mendanai 4 penerima secara anonim dengan Deposit Aging (+3 Jam) & Kerumunan (${trafficData.totalLeaves} daun)!`,
+      "success"
+    );
+    this.log(
+      `🕵️ BUKTIKAN PRIVASI: Klik tombol 'Mode Audit Forensik' di toolbar atas (atau tombol 🕵️ di kartu bukti) untuk melihat de-anonimisasi GAGAL TOTAL dan ${dep.name} tidak terdeteksi!`,
+      "success"
+    );
   }
 
   // ==========================================================================

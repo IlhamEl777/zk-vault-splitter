@@ -123,10 +123,145 @@
 
         <div class="setup-divider"></div>
 
-        <div class="setup-group setup-split-summary">
+        <div class="setup-group">
+          <span class="setup-icon">🛡️</span>
+          <span class="setup-label">Metode Split:</span>
+          <div class="split-mode-selector" id="split-mode-selector">
+            <button type="button" class="split-mode-btn active" id="btn-mode-equal" data-mode="equal" title="Bagi Rata 25% Seketika (Konvensional)">
+              <span>⚡ Rata (25%)</span>
+            </button>
+            <button type="button" class="split-mode-btn" id="btn-mode-stealth" data-mode="stealth" title="Pencairan Acak & Jeda Terjadwal (Anti-Forensik)">
+              <span>🎲⏱️ Stealth (Acak & Jeda)</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="setup-divider"></div>
+
+        <div class="setup-group setup-split-summary" id="setup-split-summary-box">
           <span class="setup-icon">⚡</span>
-          <span class="calc-label">Pecahan / Penerima:</span>
+          <span class="calc-label" id="calc-split-label">Pecahan / Penerima:</span>
           <span class="calc-badge" id="calc-split-badge">0.2500 ETH</span>
+        </div>
+      </div>
+
+      <!-- STEALTH RANDOM & TIMELOCK DRAWER (VISIBLE WHEN STEALTH MODE IS SELECTED) -->
+      <div class="stealth-config-drawer" id="stealth-config-drawer" style="display: none;">
+        <div class="stealth-drawer-inner">
+          <div class="stealth-banner">
+            <div class="stealth-badge-row">
+              <span class="stealth-chip">🎲 ANTI-CLUSTERING</span>
+              <span class="stealth-chip chip-purple">⏱️ TIMELOCK ESCROW</span>
+              <span class="stealth-desc">Nominal diacak secara non-deterministik dan dikirim bertahap sesuai slider jeda waktu:</span>
+            </div>
+            <div class="stealth-action-group">
+              <button type="button" class="stealth-action-btn" id="btn-stealth-randomize" title="Acak ulang nominal dan durasi jeda waktu">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                <span>🎲 Acak Semua</span>
+              </button>
+              <button type="button" class="stealth-action-btn" id="btn-stealth-preset-fast" title="Preset Cepat: 0s, 10s, 20s, 30s">
+                <span>⚡ Demo Cepat (10-30s)</span>
+              </button>
+              <button type="button" class="stealth-action-btn" id="btn-stealth-preset-normal" title="Preset Medium: 0s, 25s, 50s, 80s">
+                <span>🛡️ Stealth (25-80s)</span>
+              </button>
+              <button type="button" class="stealth-close-btn" id="btn-stealth-close-drawer" title="Tutup / Sembunyikan Laci Pengaturan (Mode Stealth Tetap Aktif)">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                <span>Tutup</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="stealth-cards-container" id="stealth-cards-container">
+            <!-- 4 Cards for 4 Recipients with Amount Input and Delay Slider -->
+            <div class="stealth-card" data-slot="0">
+              <div class="stealth-card-head">
+                <span class="slot-idx">#1</span>
+                <span class="slot-name" id="stealth-name-0">Bob</span>
+                <span class="slot-share-badge" id="stealth-share-0">18.5%</span>
+              </div>
+              <div class="stealth-card-row">
+                <label>Nominal:</label>
+                <div class="stealth-amount-wrap">
+                  <input type="number" class="stealth-amount-input" id="input-stealth-amt-0" value="0.1850" step="0.01" min="0.01" />
+                  <span class="stealth-unit">ETH</span>
+                </div>
+              </div>
+              <div class="stealth-card-row">
+                <div class="stealth-slider-header">
+                  <label>Jeda Waktu:</label>
+                  <span class="stealth-delay-val" id="stealth-delay-val-0">0s (Langsung)</span>
+                </div>
+                <input type="range" class="stealth-slider" id="slider-stealth-delay-0" min="0" max="120" value="0" step="1" />
+              </div>
+            </div>
+
+            <div class="stealth-card" data-slot="1">
+              <div class="stealth-card-head">
+                <span class="slot-idx">#2</span>
+                <span class="slot-name" id="stealth-name-1">Charlie</span>
+                <span class="slot-share-badge" id="stealth-share-1">31.2%</span>
+              </div>
+              <div class="stealth-card-row">
+                <label>Nominal:</label>
+                <div class="stealth-amount-wrap">
+                  <input type="number" class="stealth-amount-input" id="input-stealth-amt-1" value="0.3120" step="0.01" min="0.01" />
+                  <span class="stealth-unit">ETH</span>
+                </div>
+              </div>
+              <div class="stealth-card-row">
+                <div class="stealth-slider-header">
+                  <label>Jeda Waktu:</label>
+                  <span class="stealth-delay-val" id="stealth-delay-val-1">+15s</span>
+                </div>
+                <input type="range" class="stealth-slider" id="slider-stealth-delay-1" min="0" max="120" value="15" step="1" />
+              </div>
+            </div>
+
+            <div class="stealth-card" data-slot="2">
+              <div class="stealth-card-head">
+                <span class="slot-idx">#3</span>
+                <span class="slot-name" id="stealth-name-2">Dave</span>
+                <span class="slot-share-badge" id="stealth-share-2">14.3%</span>
+              </div>
+              <div class="stealth-card-row">
+                <label>Nominal:</label>
+                <div class="stealth-amount-wrap">
+                  <input type="number" class="stealth-amount-input" id="input-stealth-amt-2" value="0.1430" step="0.01" min="0.01" />
+                  <span class="stealth-unit">ETH</span>
+                </div>
+              </div>
+              <div class="stealth-card-row">
+                <div class="stealth-slider-header">
+                  <label>Jeda Waktu:</label>
+                  <span class="stealth-delay-val" id="stealth-delay-val-2">+30s</span>
+                </div>
+                <input type="range" class="stealth-slider" id="slider-stealth-delay-2" min="0" max="120" value="30" step="1" />
+              </div>
+            </div>
+
+            <div class="stealth-card" data-slot="3">
+              <div class="stealth-card-head">
+                <span class="slot-idx">#4</span>
+                <span class="slot-name" id="stealth-name-3">Eve</span>
+                <span class="slot-share-badge" id="stealth-share-3">36.0%</span>
+              </div>
+              <div class="stealth-card-row">
+                <label>Nominal:</label>
+                <div class="stealth-amount-wrap">
+                  <input type="number" class="stealth-amount-input" id="input-stealth-amt-3" value="0.3600" step="0.01" min="0.01" />
+                  <span class="stealth-unit">ETH</span>
+                </div>
+              </div>
+              <div class="stealth-card-row">
+                <div class="stealth-slider-header">
+                  <label>Jeda Waktu:</label>
+                  <span class="stealth-delay-val" id="stealth-delay-val-3">+45s</span>
+                </div>
+                <input type="range" class="stealth-slider" id="slider-stealth-delay-3" min="0" max="120" value="45" step="1" />
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -355,11 +490,15 @@
                   <div class="code-val text-success font-bold">NOL (0% Jejak On-Chain)</div>
                 </div>
                 <div class="node-field">
-                  <label>Fungsi yang Dipanggil:</label>
-                  <div class="code-val">withdrawSplit(...)</div>
+                  <label>Strategi Split:</label>
+                  <div class="code-val text-primary font-bold" id="val-relayer-mode">⚡ 25% Rata Seketika</div>
                 </div>
                 <div class="node-field">
-                  <label>Status Tx:</label>
+                  <label>Fungsi yang Dipanggil:</label>
+                  <div class="code-val" id="val-relayer-fn">withdrawSplit(...)</div>
+                </div>
+                <div class="node-field">
+                  <label>Status Tx &amp; Keeper:</label>
                   <div class="code-val text-muted" id="val-tx-status">Menunggu eksekusi</div>
                 </div>
                 <div class="node-divider"></div>
@@ -386,28 +525,52 @@
                 </div>
                 <div class="recipients-grid" id="recipients-grid">
                   <div class="recipient-item" id="rec-item-0" data-rec-index="0">
-                    <div class="rec-name" id="rec-name-0">Bob</div>
+                    <div class="rec-head-row">
+                      <div class="rec-name" id="rec-name-0">Bob</div>
+                      <span class="rec-timer-pill" id="rec-timer-0" style="display: none;">⏳ Siap</span>
+                    </div>
                     <div class="rec-address" id="rec-addr-0">0x3C44...93BC</div>
                     <div class="rec-balance" id="rec-bal-0">10,000.0000 ETH</div>
                     <div class="rec-target-badge" id="rec-target-0">+0.2500 ETH</div>
+                    <div class="rec-progress-track" id="rec-track-0" style="display: none;">
+                      <div class="rec-progress-bar" id="rec-prog-0" style="width: 0%;"></div>
+                    </div>
                   </div>
                   <div class="recipient-item" id="rec-item-1" data-rec-index="1">
-                    <div class="rec-name" id="rec-name-1">Charlie</div>
+                    <div class="rec-head-row">
+                      <div class="rec-name" id="rec-name-1">Charlie</div>
+                      <span class="rec-timer-pill" id="rec-timer-1" style="display: none;">⏳ Siap</span>
+                    </div>
                     <div class="rec-address" id="rec-addr-1">0x90F7...b906</div>
                     <div class="rec-balance" id="rec-bal-1">10,000.0000 ETH</div>
                     <div class="rec-target-badge" id="rec-target-1">+0.2500 ETH</div>
+                    <div class="rec-progress-track" id="rec-track-1" style="display: none;">
+                      <div class="rec-progress-bar" id="rec-prog-1" style="width: 0%;"></div>
+                    </div>
                   </div>
                   <div class="recipient-item" id="rec-item-2" data-rec-index="2">
-                    <div class="rec-name" id="rec-name-2">Dave</div>
+                    <div class="rec-head-row">
+                      <div class="rec-name" id="rec-name-2">Dave</div>
+                      <span class="rec-timer-pill" id="rec-timer-2" style="display: none;">⏳ Siap</span>
+                    </div>
                     <div class="rec-address" id="rec-addr-2">0x15d3...6A65</div>
                     <div class="rec-balance" id="rec-bal-2">10,000.0000 ETH</div>
                     <div class="rec-target-badge" id="rec-target-2">+0.2500 ETH</div>
+                    <div class="rec-progress-track" id="rec-track-2" style="display: none;">
+                      <div class="rec-progress-bar" id="rec-prog-2" style="width: 0%;"></div>
+                    </div>
                   </div>
                   <div class="recipient-item" id="rec-item-3" data-rec-index="3">
-                    <div class="rec-name" id="rec-name-3">Eve</div>
+                    <div class="rec-head-row">
+                      <div class="rec-name" id="rec-name-3">Eve</div>
+                      <span class="rec-timer-pill" id="rec-timer-3" style="display: none;">⏳ Siap</span>
+                    </div>
                     <div class="rec-address" id="rec-addr-3">0x9965...A4dc</div>
                     <div class="rec-balance" id="rec-bal-3">10,000.0000 ETH</div>
                     <div class="rec-target-badge" id="rec-target-3">+0.2500 ETH</div>
+                    <div class="rec-progress-track" id="rec-track-3" style="display: none;">
+                      <div class="rec-progress-bar" id="rec-prog-3" style="width: 0%;"></div>
+                    </div>
                   </div>
                 </div>
                 <div class="node-note" id="node-recipients-note">
@@ -438,17 +601,18 @@
               <button class="zoom-btn" id="btn-zoom-fit" title="Fit to Screen">⛶</button>
             </div>
           </div>
+
+          <!-- FLOATING DOCK RE-OPEN BUTTON (ONLY VISIBLE WHEN PANEL IS MINIMIZED) -->
+          <button class="panel-dock-reopen-btn" id="btn-dock-reopen" title="Buka Panel ZK Agent" aria-label="Buka Panel Asisten">
+            <span class="dock-icon">‹</span>
+            <span class="dock-label">ZK Agent</span>
+          </button>
         </main>
 
         <!-- RIGHT SIDEBAR: ZK ASSISTANT & LIVE INSPECTOR -->
         <aside class="right-panel" id="right-panel">
           <!-- Draggable Left Splitter / Resizer Handle -->
           <div class="panel-resizer" id="panel-resizer" title="Geser (drag) ke kiri/kanan untuk mengatur ukuran lebar panel bebas"></div>
-
-          <!-- Drawer Collapse / Expand Handle Button on the Left Edge -->
-          <button class="drawer-toggle-handle" id="drawer-toggle-handle" title="Tutup / Buka Panel Samping">
-            <span id="drawer-handle-arrow">›</span>
-          </button>
 
           <div class="panel-header" id="panel-drag-header">
             <div class="panel-title">
@@ -457,13 +621,10 @@
               <span class="pill-beta">EVM</span>
             </div>
             <div class="panel-header-actions">
-              <button class="panel-action-icon-btn" id="btn-float-panel" title="Mode Jendela Mengambang (Bisa di-Drag & Drop bebas)">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="14" height="14" rx="2" ry="2"/><polyline points="21 9 21 21 9 21"/></svg>
+              <button class="panel-minimize-btn" id="btn-close-panel" title="Lipat Panel Samping (Minimize)">
+                <span class="btn-text">Lipat</span>
+                <span class="btn-icon">›</span>
               </button>
-              <button class="panel-action-icon-btn" id="btn-maximize-panel" title="Layar Penuh / Ruang Penuh (Full Space)">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="icon-maximize"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
-              </button>
-              <button class="panel-close-btn" id="btn-close-panel" title="Tutup / Minimize">×</button>
             </div>
           </div>
 
@@ -507,7 +668,7 @@
                   <div class="scenario-expand-toggle-wrap">
                     <button class="btn-expand-scenarios" id="btn-toggle-scenarios" type="button">
                       <span id="scenario-expand-icon">▾</span>
-                      <span id="scenario-expand-label">Ganti Skenario Eksperimen (3 Opsi)</span>
+                      <span id="scenario-expand-label">Ganti Skenario Eksperimen (5 Opsi)</span>
                     </button>
                   </div>
 
@@ -521,10 +682,18 @@
                       </div>
                     </button>
 
+                    <button class="action-card-btn" id="action-run-stealth" data-scenario="stealth">
+                      <div class="action-icon">🎲⏱️</div>
+                      <div class="action-info">
+                        <div class="action-title">2. Stealth Split (Acak &amp; Jeda)</div>
+                        <div class="action-desc">Pencairan bertahap dengan timelock escrow &amp; nominal acak</div>
+                      </div>
+                    </button>
+
                     <button class="action-card-btn" id="action-test-hijack" data-scenario="hijack">
                       <div class="action-icon">⚔️</div>
                       <div class="action-info">
-                        <div class="action-title">2. Uji Sabotase Kurir (Front-Running)</div>
+                        <div class="action-title">3. Uji Sabotase Kurir (Front-Running)</div>
                         <div class="action-desc">Kurir mencoba ganti alamat penerima ke dompetnya</div>
                       </div>
                     </button>
@@ -532,8 +701,16 @@
                     <button class="action-card-btn" id="action-test-double-spend" data-scenario="doublespend">
                       <div class="action-icon">⚠️</div>
                       <div class="action-info">
-                        <div class="action-title">3. Uji Double-Spending</div>
+                        <div class="action-title">4. Uji Double-Spending</div>
                         <div class="action-desc">Cairkan kupon putaran sebelumnya untuk kedua kali</div>
+                      </div>
+                    </button>
+
+                    <button class="action-card-btn" id="action-run-aging" data-scenario="aging">
+                      <div class="action-icon">⏳👥</div>
+                      <div class="action-info">
+                        <div class="action-title">5. Deposit Aging &amp; Kerumunan Penyetor</div>
+                        <div class="action-desc">Simulasi trafik nyata: jeda waktu +3 jam &amp; 3 penyetor lain masuk (Privasi Maksimal)</div>
                       </div>
                     </button>
                   </div>
@@ -598,12 +775,23 @@
                     <div class="field-value-mono" id="receipt-deposit-tx">Belum ada transaksi di sesi ini</div>
                   </div>
 
-                  <div class="receipt-field">
+                  <div class="receipt-field" id="receipt-withdraw-wrap">
                     <div class="field-label-wrap">
-                      <span class="field-label">Pencairan (Withdraw Tx):</span>
+                      <span class="field-label" id="receipt-withdraw-label">Pencairan (Withdraw Tx):</span>
                       <button class="btn-copy-mini" id="btn-copy-withdraw-tx" title="Salin Full Hash Pencairan">📋 Salin</button>
                     </div>
                     <div class="field-value-mono" id="receipt-withdraw-tx">Belum ada transaksi di sesi ini</div>
+                  </div>
+
+                  <!-- RINCIAN PER DOMPET PENERIMA (STEALTH TIMELOCK ESCROW) -->
+                  <div class="stealth-slots-receipt" id="stealth-slots-receipt" hidden>
+                    <div class="stealth-slots-header">
+                      <span class="stealth-slots-title">Pencairan Tiap Dompet (Timelock Escrow):</span>
+                      <span class="stealth-slots-counter" id="stealth-slots-counter">0/4 Selesai</span>
+                    </div>
+                    <div class="stealth-slots-list" id="stealth-slots-list">
+                      <!-- Diisi dinamis per slot dengan status dan hash masing-masing -->
+                    </div>
                   </div>
 
                   <div class="receipt-meta-row">
@@ -709,6 +897,33 @@
 
           <div class="guide-modal-footer">
             <button class="modal-primary-btn" id="btn-modal-gotit">Saya Mengerti, Mulai Simulasi</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- MODAL POPUP: DETAIL KRIPTOGRAFI & SIRKUIT GROTH16 -->
+      <div class="modal-backdrop" id="modal-tech-props-backdrop">
+        <div class="tech-modal" id="tech-modal">
+          <div class="tech-modal-header">
+            <div class="modal-title-wrap">
+              <span class="modal-icon" id="tech-modal-icon">🔐</span>
+              <div>
+                <h3 class="modal-title" id="tech-modal-title">Parameter Kriptografi &amp; Kunci Rahasia</h3>
+                <p class="modal-subtitle" id="tech-modal-subtitle">Inspeksi preimage 254-bit, verifikasi sirkuit SnarkJS Groth16, dan bukti on-chain</p>
+              </div>
+            </div>
+            <button class="modal-close-btn" id="btn-close-tech-modal" title="Tutup (Esc)">×</button>
+          </div>
+
+          <div class="tech-modal-body" id="tech-modal-body">
+            <!-- Diisi secara dinamis dengan tabel luas dan deskripsi -->
+          </div>
+
+          <div class="tech-modal-footer">
+            <div class="tech-modal-tip">
+              <span>💡 Seluruh kunci rahasia (preimage) diproses secara lokal dan tidak pernah dibocorkan ke pihak luar.</span>
+            </div>
+            <button class="modal-primary-btn" id="btn-done-tech-modal">Selesai Memeriksa</button>
           </div>
         </div>
       </div>
@@ -965,9 +1180,9 @@
               <span class="legal-disclaimer">⚖️ Berkas ini siap dilampirkan untuk pengajuan permohonan data KYC bursa terpusat (CEX Subpoena).</span>
             </div>
             <div class="footer-right">
-              <button class="modal-secondary-btn" id="btn-export-report">
+              <button class="modal-secondary-btn" id="btn-export-report" title="Unduh berkas laporan audit forensik lengkap dalam format Markdown (.md)">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                <span>Salin Bukti Forensik</span>
+                <span>Unduh Berkas Laporan (.md)</span>
               </button>
               <button class="modal-primary-btn" id="btn-close-forensic-bottom">Selesai Memeriksa</button>
             </div>

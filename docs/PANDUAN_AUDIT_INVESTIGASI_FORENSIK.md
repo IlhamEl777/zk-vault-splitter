@@ -1,10 +1,11 @@
-# 🕵️‍♂️ PANDUAN AUDIT & INVESTIGASI FORENSIK BLOCKCHAIN
-## Protokol: ZK-Vault Splitter (1-to-4 Anonymous Privacy Pool)
-### Peran: Tim Investigasi Kejahatan Finansial & Forensik Aset Digital
+# 🕵️ PANDUAN AUDIT & INVESTIGASI FORENSIK DIGITAL
+## Protokol Privasi ZK-Vault Splitter (On-Chain De-anonymization SOP)
+
+Dokumen ini merupakan panduan standar operasional (*Standard Operating Procedure / SOP*) bagi auditor keamanan blockchain, analis kepatuhan regulasi (*AML/CFT Compliance*), dan penyelidik kejahatan siber (*cybercrime forensic investigators*) dalam membongkar, menganalisis, dan melacak transaksi pencucian uang yang memanfaatkan protokol **ZK-Vault Splitter**.
 
 ---
 
-## 📑 Daftar Isi
+## 📌 Daftar Isi
 1. [Ringkasan Eksekutif & Prinsip Investigasi](#1-ringkasan-eksekutif--prinsip-investigasi)
 2. [Anatomi Kriptografi vs Celah Forensik](#2-anatomi-kriptografi-vs-celah-forensik)
 3. [Metodologi Investigasi 5 Pilar](#3-metodologi-investigasi-5-pilar)
@@ -32,8 +33,8 @@ Sebagai investigator, tujuan kita bukan meretas matematika kurva eliptik Groth16
 | :--- | :--- | :--- |
 | **Setoran (`deposit`)** | Penyetor hanya memasukkan `commitment = Poseidon(nullifier, secret)`. Alamat penyetor tidak dicatat di daun pohon. | **Waktu & Volume:** Transaksi setoran dicatat di blok dengan stempel waktu, nilai denominasi, dan alamat pengirim (`tx.origin`). |
 | **Pohon Merkle** | Bukti ZK membuktikan kepemilikan salah satu daun dari $2^8 = 256$ kapasitas tanpa menyebut nomor daun. | **Ukuran Anonymity Set ($k$):** Bukti mengacu pada `root` tertentu. Investigator dapat merekonstruksi tepat berapa daun yang ada saat `root` dibuat. Jika $k=1$, penyetor 100% pasti. |
-| **Pencairan (`withdrawSplit`)** | Dilakukan oleh Kurir (*Relayer*), sehingga alamat penyetor tidak ada dalam transaksi pencairan. | **Tautan Gas & Konsolidasi:** Siapa yang mendanai gas 4 penerima? Ke mana 4 penerima mengirim dana setelahnya (*peeling chains / sweep*)? |
-| **Kurir / Relayer** | Menjamin penyetor tidak butuh saldo gas untuk mencairkan. | **Metadata Jaringan:** API Bridge dan RPC node menyimpan alamat IP, *user-agent*, dan *request payload* pada detik transaksi dibuat. |
+| **Pencairan (`withdrawSplit` / `withdrawScheduledSplit`)** | Dilakukan oleh Kurir (*Relayer*), dengan opsi instan atau berjangka (*timelock escrow*), sehingga alamat penyetor tidak ada dalam transaksi pencairan. | **Tautan Gas & Konsolidasi:** Siapa yang mendanai gas 4 penerima? Ke mana 4 penerima mengirim dana setelahnya (*peeling chains / sweep*)? Serta bagaimana korelasi waktu slot eksekusi *Keeper* (`ScheduledPayoutDispatched`)? |
+| **Kurir / Relayer & Keeper** | Menjamin penyetor tidak butuh saldo gas untuk mencairkan. | **Metadata Jaringan:** API Bridge dan RPC node menyimpan alamat IP, *user-agent*, dan *request payload* pada detik transaksi dibuat. |
 
 ---
 
@@ -42,6 +43,7 @@ Sebagai investigator, tujuan kita bukan meretas matematika kurva eliptik Groth16
 ```
            ┌────────────────────────────────────────────────────────┐
            │        HASIL PENCAIRAN ON-CHAIN (WITHDRAWAL)           │
+           │  (Instant withdrawSplit atau ScheduledSplitCreated)   │
            └───────────────────────────┬────────────────────────────┘
                                        │
          ┌─────────────────────────────┼────────────────────────────┐
@@ -65,7 +67,8 @@ Sebagai investigator, tujuan kita bukan meretas matematika kurva eliptik Groth16
                      └─────────────────┬─────────────────┘
                                        ▼
                      ┌───────────────────────────────────┐
-                     │     IDENTIFIKASI TERSANGKA UTAMA  │
+                     │   IDENTIFIKASI TERSANGKA UTAMA    │
+                     │   (atau STATUS PRIVASI AMAN k>1)  │
                      └───────────────────────────────────┘
 ```
 
@@ -74,17 +77,21 @@ Sebagai investigator, tujuan kita bukan meretas matematika kurva eliptik Groth16
 - Telusuri kembali sejarah blok: temukan pada blok berapa `root` tersebut pertama kali tercipta.
 - Hitung jumlah deposit sah sebelum atau pada blok pembuatan root ($k$).
 - **Aturan Investigasi:**
-  - Jika $k = 1$: **De-anonimisasi Deterministik (100% Pasti)**. Tidak ada kemungkinan tersangka lain.
+  - Jika $k = 1$: **De-anonimisasi Deterministik (100% Pasti)**. Tidak ada kemungkinan tersangka lain (*Anonymity Collapse*).
   - Jika $2 \le k \le 5$: **Kandidat Sangat Terbatas (Probabilitas Awal $1/k$)**. Sangat mudah dieliminasi dengan pilar berikutnya.
-  - Jika $k > 5$: Butuh korelasi mendalam dengan Pilar 2, 3, dan 4.
+  - Jika $k > 5$: Privasi penyetor terlindung di dalam kerumunan (*Deposit Aging / Decoy Traffic*), menghasilkan status **"DE-ANONIMISASI GAGAL (PRIVASI AMAN)"** kecuali ada tautan gas langsung di Pilar 3.
 
 ### Pilar 2: Korelasi Temporal & Denominasi (Value/Time Fingerprinting)
-- **Denomination Shift:** Kontrak memiliki fungsi `setDenomination(newDenom)`. Jika transaksi pencairan menghasilkan $0.25 \text{ ETH} \times 4 = 1.0 \text{ ETH}$, carilah setoran yang terjadi pada periode di mana denominasi brankas disetel pada nilai tersebut.
-- **Time-Delta Decay:** Riset forensik privasi blockchain membuktikan bahwa mayoritas pengguna mencairkan dana dalam kurun waktu 1 jam hingga 24 jam setelah setoran (*Tornado Cash Empirical Study*). Berikan bobot kecurigaan lebih tinggi pada deposit yang terjadi sesaat sebelum `root` diterbitkan.
+- **Denomination Shift:** Kontrak memiliki fungsi `setDenomination(newDenom)`. Jika transaksi pencairan menghasilkan total $1.0 \text{ ETH}$, carilah setoran yang terjadi pada periode di mana denominasi brankas disetel pada nilai tersebut.
+- **Analisis Split Mode:**
+  - *Instant Equal Split:* 4 penerima mendapatkan nominal identik di detik yang sama (korelasi klaster tinggi).
+  - *Stealth Staggered Split:* Nominal diacak dan slot didistribusikan berjangka (0-120s) via Timelock Escrow. Mengaburkan korelasi temporal dan nominal kembar.
+- **Time-Delta Decay:** Penyetor yang tergesa-gesa mencairkan dana sesaat setelah deposit memiliki skor kecurigaan tertinggi.
 
 ### Pilar 3: Analisis Graf Rantai (Common Gas Funder & Peeling Chains)
 - **Heuristik Penyandang Gas (Common Gas Funder):** 4 dompet penerima membutuhkan ETH untuk memindahkan dana hasil split. Periksa riwayat transfer pertama yang masuk ke 4 dompet penerima. Jika ada dompet penyetor kandidat yang pernah mentransfer gas ke salah satu atau semua penerima, ini adalah bukti *smoking gun*.
 - **Heuristik Pengumpulan Dana (Sweeping / Peeling Chains):** Pantau alur keluarnya dana dari 4 penerima. Apakah dana tersebut diteruskan kembali ke satu alamat agregator? Pola ini membuktikan bahwa 4 penerima adalah dompet boneka (*Sybil wallets*) milik satu aktor yang sama.
+- **Optimasi Pemindaian Caching:** Mesin investigasi menggunakan `blockCache` untuk menelusuri 50+ blok ke belakang secara instan tanpa membebani node RPC.
 
 ### Pilar 4: Jejak Metadata Server Relayer & API Bridge
 - Ambil log server web API Bridge (`api-bridge.ts`):
@@ -100,9 +107,10 @@ Investigator menghitung total poin kecurigaan untuk setiap kandidat di dalam kum
 ## 🚦 4. SOP Penyelidikan Langkah-demi-Langkah
 
 ### Tahap 1: Inisiasi Kasus & Penangkapan Data On-Chain
-1. Dapatkan **Hash Transaksi Pencairan** (`WithdrawSplit`).
-2. Jalankan dekode data transaksi (*calldata & event logs*):
-   - Ambil `root`, `nullifierHash`, `recipients[0..3]`, `amountPerRecipient`, `relayer`.
+1. Dapatkan **Hash Transaksi Pencairan** (`WithdrawSplit`, `ScheduledSplitCreated`, atau eksekusi sekunder `ScheduledPayoutDispatched`).
+2. Jika transaksi yang diinput adalah eksekusi sekunder keeper (`ScheduledPayoutDispatched`), mesin investigasi secara otomatis menelusuri `batchId` ke transaksi induk pembuatannya (`ScheduledSplitCreated`).
+3. Jalankan dekode data transaksi (*calldata & event logs*):
+   - Ambil `root`, `nullifierHash`, `recipients[0..3]`, nominal per penerima, dan alamat `relayer`.
    - Catat nomor blok pencairan ($B_{withdraw}$) dan stempel waktu ($T_{withdraw}$).
 
 ### Tahap 2: Audit Rekursif Merkle Tree
@@ -118,10 +126,12 @@ Investigator menghitung total poin kecurigaan untuk setiap kandidat di dalam kum
    - Periksa apakah ada kesamaan pola penarikan dari bursa (CEX) yang sama pada waktu yang berdekatan.
 
 ### Tahap 4: Eksekusi Skrip Forensik
-Gunakan skrip audit investigasi resmi:
+Gunakan skrip audit investigasi resmi atau antarmuka visualizer:
 ```bash
-npx tsx scripts/investigate-tx.ts <TX_HASH_WITHDRAWAL>
+# Melalui API Bridge
+curl -X POST http://127.0.0.1:3001/api/investigate -H "Content-Type: application/json" -d '{"txHash":"<TX_HASH_WITHDRAWAL>"}'
 ```
+Atau klik tombol **`🕵️ Audit Forensik`** pada navbar visualizer.
 
 ---
 
@@ -143,7 +153,7 @@ Skor dihitung dari skala **0 hingga 100 poin** untuk setiap kandidat:
 ### Ambang Batas Keyakinan (*Confidence Thresholds*):
 - 🔴 **HIGH CONFIDENCE ($\ge 80\%$)**: **Tersangka Utama Teridentifikasi (*Prime Suspect Confirmed*)**. Memenuhi standar bukti untuk penerbitan laporan forensik dan tindakan hukum.
 - 🟡 **MEDIUM CONFIDENCE ($45\% - 79\%$)**: **Kandidat Kuat Berindikasi (*Strong Candidate of Interest*)**. Diperlukan data tambahan (subpoena log ISP/CEX).
-- ⚪ **LOW / INCONCLUSIVE ($< 45\%$)**: **Bukti Belum Konklusif**. Anonimitas masih cukup terlindungi oleh volume pool.
+- ⚪ **LOW / SAFE ($< 45\%$)**: **De-anonimisasi Gagal (Privasi Aman)**. Penyetor terlindung di dalam himpunan kerumunan anonim ($k > 1$) berkat penuaan deposit (*Deposit Aging*) atau setoran umpan (*Decoy Traffic*).
 
 ---
 
@@ -170,21 +180,24 @@ Jika penyelidikan on-chain mengarah pada satu tersangka dengan skor $\ge 80\%$:
 # 🛡️ LAPORAN AUDIT INVESTIGASI FORENSIK DIGITAL
 **Nomor Berkas Kasus:** INV-ZK-2026-XXXX
 **Tanggal Investigasi:** [Tanggal]
-**Status Keyakinan:** [🔴 TINGGI / 🟡 SEDANG / ⚪ TIDAK KONKLUSIF]
+**Mode Split:** [Instant 25% Equal / Stealth Staggered Split]
+**Status Keyakinan:** [🔴 TINGGI / 🟡 SEDANG / ⚪ AMAN (DE-ANONIMISASI GAGAL)]
 
 ### 1. Data Transaksi Target
-- Hash Pencairan: 0x...
-- Brankas Kontrak: 0x...
-- Nilai Pecahan: 4 x 0.25 ETH (Total 1.0 ETH)
-- Alamat Relayer: 0x...
+- Hash Pencairan Induk: 0x...
+- Hash Eksekusi Terkait: [Jika berlaku]
+- Brankas Kontrak: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+- Total Denominasi: 1.0 ETH
+- Alamat Relayer: 0x14dC79964da2C08b23698B3D3cc7Ca32193d9955
 - 4 Dompet Penerima:
-  1. [Alamat 1]
-  2. [Alamat 2]
-  3. [Alamat 3]
-  4. [Alamat 4]
+  1. [Alamat 1] - [Nominal & Status Slot]
+  2. [Alamat 2] - [Nominal & Status Slot]
+  3. [Alamat 3] - [Nominal & Status Slot]
+  4. [Alamat 4] - [Nominal & Status Slot]
 
 ### 2. Temuan Forensik On-Chain
 - Ukuran Anonymity Set pada Root: k = [N]
+- Status Pertahanan Pool: [k=1 Collapse / k>1 Aged Decoy Shield]
 - Daftar Kandidat Penyetor:
   - Kandidat A: 0x... (Skor: 92% - TERSANGKA UTAMA)
   - Kandidat B: 0x... (Skor: 15%)
@@ -192,7 +205,9 @@ Jika penyelidikan on-chain mengarah pada satu tersangka dengan skor $\ge 80\%$:
   [Jelaskan korelasi gas / temporal / keunikan root]
 
 ### 3. Kesimpulan & Rekomendasi
-Entitas pemilik alamat 0x... terbukti secara forensik on-chain sebagai sumber penyetor asli dari transaksi penarikan tersebut. Direkomendasikan segera melayangkan surat permohonan data KYC ke bursa terkait.
+[Pilih salah satu:]
+- Entitas pemilik alamat 0x... terbukti secara forensik on-chain sebagai sumber penyetor asli dari transaksi penarikan tersebut. Direkomendasikan segera melayangkan surat permohonan data KYC ke bursa terkait.
+- Privasi terlindung sempurna di dalam kerumunan setoran (k=[N]). Identitas penyetor asli tidak dapat dibuktikan secara statistik maupun on-chain.
 ```
 
 ---

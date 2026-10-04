@@ -24,7 +24,7 @@ async function main() {
     provider.getSigner(6),
   ]);
 
-  const vault = new ethers.Contract(deployedInfo.vaultAddress, vaultArtifact.abi, deployer);
+  const vault: any = new ethers.Contract(deployedInfo.vaultAddress, vaultArtifact.abi, deployer);
 
   // Set unique denomination 7.77 ETH
   const uniqueEth = "7.77";
